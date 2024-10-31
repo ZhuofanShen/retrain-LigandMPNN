@@ -166,14 +166,11 @@ class ProteinMPNN(torch.nn.Module):
         S_true = feature_dict[
             "S"
         ]  # [B,L] - integer protein sequence encoded using "restype_STRtoINT"
-        # R_idx = feature_dict["R_idx"] #[B,L] - primary sequence residue index
         mask = feature_dict[
             "mask"
         ]  # [B,L] - mask for missing regions - should be removed! all ones most of the time
-        # chain_labels = feature_dict["chain_labels"] #[B,L] - integer labels for chain letters
         nn_idx = feature_dict["nn_idx"]
 
-        B, L = S_true.shape
         device = S_true.device
 
         V, E, E_idx, Y_nodes, Y_edges, Y_m = self.features(feature_dict)
@@ -228,33 +225,15 @@ class ProteinMPNN(torch.nn.Module):
         # Y_t = feature_dict["Y_t"] #[B,L,30] - element type
         # Y_m = feature_dict["Y_m"] #[B,L,30] - mask
         # X = feature_dict["X"] #[B,L,4,3] - backbone xyz coordinates for N,CA,C,O
-        B_decoder = feature_dict["batch_size"]
         S = feature_dict[
             "S"
         ]  # [B,L] - integer proitein sequence encoded using "restype_STRtoINT"
-        # R_idx = feature_dict["R_idx"] #[B,L] - primary sequence residue index
         mask = feature_dict[
             "mask"
         ]  # [B,L] - mask for missing regions - should be removed! all ones most of the time
         chain_mask = feature_dict[
             "chain_mask"
         ]  # [B,L] - mask for which residues need to be fixed; 0.0 - fixed; 1.0 - will be designed
-        '''
-        bias = feature_dict["bias"]  # [B,L,21] - amino acid bias per position
-        # chain_labels = feature_dict["chain_labels"] #[B,L] - integer labels for chain letters
-        randn = feature_dict[
-            "randn"
-        ]  # [B,L] - random numbers for decoding order; only the first entry is used since decoding within a batch needs to match for symmetry
-        temperature = feature_dict[
-            "temperature"
-        ]  # float - sampling temperature; prob = softmax(logits/temperature)
-        symmetry_list_of_lists = feature_dict[
-            "symmetry_residues"
-        ]  # [[0, 1, 14], [10,11,14,15], [20, 21]] #indices to select X over length - L
-        symmetry_weights_list_of_lists = feature_dict[
-            "symmetry_weights"
-        ]  # [[1.0, 1.0, 1.0], [-2.0,1.1,0.2,1.1], [2.3, 1.1]]
-        '''
 
         B, L = S.shape
         device = S.device
@@ -309,8 +288,8 @@ class ProteinMPNN(torch.nn.Module):
         for decoder_layer in self.decoder_layers:
             h_ESV = cat_neighbors_nodes(h_V, h_ES, E_idx)
             h_ESV = mask_bw * h_ESV + h_EXV_encoder_fw
-            # h_V = torch.utils.checkpoint.checkpoint(layer, h_V, h_ESV, mask)
-            h_V = decoder_layer(h_V, h_ESV, mask)
+            # h_V = decoder_layer(h_V, h_ESV, mask)
+            h_V = torch.utils.checkpoint.checkpoint(decoder_layer, h_V, h_ESV, mask)
 
         logits = self.W_out(h_V)
         log_probs = F.log_softmax(logits, dim=-1)
@@ -505,7 +484,7 @@ class ProteinFeaturesLigand(torch.nn.Module):
             )
             R_t = self.side_chain_atom_types[None, None, None, :].repeat(
                 B, L, E_idx_sub.shape[2], 1
-            )
+            ).to(R.device)
 
             # Side chain atom context
             R = R.view(B, L, -1, 3)  # coordinates
@@ -529,8 +508,8 @@ class ProteinFeaturesLigand(torch.nn.Module):
             Y_m = torch.gather(Y_m, 2, E_idx_Y)
 
         Y_t = Y_t.long()
-        Y_t_g = self.periodic_table_features[1][Y_t]  # group; 19 categories including 0
-        Y_t_p = self.periodic_table_features[2][Y_t]  # period; 8 categories including 0
+        Y_t_g = self.periodic_table_features[1][Y_t].to(Y_t.device)  # group; 19 categories including 0
+        Y_t_p = self.periodic_table_features[2][Y_t].to(Y_t.device)  # period; 8 categories including 0
 
         Y_t_g_1hot_ = F.one_hot(Y_t_g, 19)  # [B, L, M, 19]
         Y_t_p_1hot_ = F.one_hot(Y_t_p, 8)  # [B, L, M, 8]
