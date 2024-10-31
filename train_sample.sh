@@ -3,8 +3,8 @@
 #SBATCH --partition=gpu
 #SBATCH --job-name=train
 #SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task 1
-#SBATCH --mem=3000
+#SBATCH --cpus-per-task 12
+#SBATCH --mem=128g
 #SBATCH --time=3-00:00:00
 #SBATCH --output=slurm.%N.%j.log
 #SBATCH --error=slurm.%N.%j.err
