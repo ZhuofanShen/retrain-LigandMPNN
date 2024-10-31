@@ -1,5 +1,3 @@
-from __future__ import print_function
-
 import numpy as np
 import torch
 import torch.utils
@@ -262,8 +260,8 @@ def get_aligned_coordinates(protein_atoms, CA_dict: dict, atom_name: str):
 
 def parse_PDB(
     input_path: str,
-    device: str = "cpu",
-    chains: list = [],
+    device: str = "cuda",
+    chains: list = list(),
     parse_all_atoms: bool = False,
     parse_atoms_with_zero_occupancy: bool = False
 ):
@@ -289,16 +287,16 @@ def parse_PDB(
         atoms = atoms.select(str_out[1:-3])
 
     protein_atoms = atoms.select("protein")
-    backbone = protein_atoms.select("backbone")
+    # backbone = protein_atoms.select("backbone")
     other_atoms = atoms.select("not protein and not water")
-    water_atoms = atoms.select("water")
+    # water_atoms = atoms.select("water")
 
     CA_atoms = protein_atoms.select("name CA")
     CA_resnums = CA_atoms.getResnums()
     CA_chain_ids = CA_atoms.getChids()
     CA_icodes = CA_atoms.getIcodes()
 
-    CA_dict = {}
+    CA_dict = dict()
     for i in range(len(CA_resnums)):
         code = CA_chain_ids[i] + "_" + str(CA_resnums[i]) + "_" + CA_icodes[i]
         CA_dict[code] = i
@@ -350,43 +348,41 @@ def parse_PDB(
         Y_t = Y_t[Y_m]
         Y_m = Y_m[Y_m]
     except:
-        print("Error loading ligand atoms.")
+        print("Error loading ligand atoms when parsing " + input_path)
         Y = np.zeros([1, 3], np.float32)
         Y_t = np.zeros([1], np.int32)
         Y_m = np.zeros([1], np.int32)
 
-    output_dict = {}
+    output_dict = dict()
     output_dict["X"] = torch.tensor(X, device=device, dtype=torch.float32)
     output_dict["mask"] = torch.tensor(mask, device=device, dtype=torch.int32)
     output_dict["Y"] = torch.tensor(Y, device=device, dtype=torch.float32)
     output_dict["Y_t"] = torch.tensor(Y_t, device=device, dtype=torch.int32)
     output_dict["Y_m"] = torch.tensor(Y_m, device=device, dtype=torch.int32)
-
     output_dict["R_idx"] = torch.tensor(R_idx, device=device, dtype=torch.int32)
     output_dict["chain_labels"] = torch.tensor(
         chain_labels, device=device, dtype=torch.int32
     )
 
-    output_dict["chain_letters"] = CA_chain_ids
+    # output_dict["chain_letters"] = CA_chain_ids
 
-    mask_c = []
-    chain_list = list(set(output_dict["chain_letters"]))
-    chain_list.sort()
-    for chain in chain_list:
-        mask_c.append(
-            torch.tensor(
-                [chain == item for item in output_dict["chain_letters"]],
-                device=device,
-                dtype=bool,
-            )
-        )
+    # mask_c = list()
+    # chain_list = list(set(output_dict["chain_letters"]))
+    # chain_list.sort()
+    # for chain in chain_list:
+    #     mask_c.append(
+    #         torch.tensor(
+    #             [chain == item for item in output_dict["chain_letters"]],
+    #             device=device,
+    #             dtype=bool,
+    #         )
+    #     )
 
-    output_dict["mask_c"] = mask_c
-    output_dict["chain_list"] = chain_list
+    # output_dict["mask_c"] = mask_c
+    # output_dict["chain_list"] = chain_list
 
     output_dict["S"] = torch.tensor(S, device=device, dtype=torch.int32)
-
     output_dict["xyz_37"] = torch.tensor(xyz_37, device=device, dtype=torch.float32)
     output_dict["xyz_37_m"] = torch.tensor(xyz_37_m, device=device, dtype=torch.int32)
 
-    return output_dict, backbone, other_atoms, CA_icodes, water_atoms
+    return output_dict
