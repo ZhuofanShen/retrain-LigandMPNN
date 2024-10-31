@@ -13,6 +13,6 @@
 #SBATCH --begin=now
 #SBATCH --open-mode=append
 
-python parse_training_data.py sample/train.json
-python parse_training_data.py sample/valid.json
+python preprocess_training_data.py training/train.json
+python preprocess_training_data.py training/valid.json
 
