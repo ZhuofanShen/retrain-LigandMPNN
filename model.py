@@ -452,7 +452,7 @@ class ProteinFeaturesLigand(torch.nn.Module):
             )
             R_t = self.side_chain_atom_types[None, None, None, :].repeat(
                 B, L, E_idx_sub.shape[2], 1
-            ).to(R.device)
+            )
 
             # Side chain atom context
             R = R.view(B, L, -1, 3)  # coordinates
@@ -476,8 +476,8 @@ class ProteinFeaturesLigand(torch.nn.Module):
             Y_m = torch.gather(Y_m, 2, E_idx_Y)
 
         Y_t = Y_t.long()
-        Y_t_g = self.periodic_table_features[1][Y_t].to(Y_t.device)  # group; 19 categories including 0
-        Y_t_p = self.periodic_table_features[2][Y_t].to(Y_t.device)  # period; 8 categories including 0
+        Y_t_g = self.periodic_table_features[1][Y_t]  # group; 19 categories including 0
+        Y_t_p = self.periodic_table_features[2][Y_t]  # period; 8 categories including 0
 
         Y_t_g_1hot_ = F.one_hot(Y_t_g, 19)  # [B, L, M, 19]
         Y_t_p_1hot_ = F.one_hot(Y_t_p, 8)  # [B, L, M, 8]
