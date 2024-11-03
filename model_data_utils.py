@@ -1,5 +1,5 @@
+import copy, os
 import numpy as np
-import os
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset
@@ -127,34 +127,35 @@ def batch_featurize(
     B = len(batch)
     L_max = max([b["S"].shape[0] for b in batch])
     # l_ligand_max = max([b["Y"].shape[0] for b in batch]) # + 1
+    l_ligand_squeezed_max = 0
 
-    xyz_37_batch = torch.zeros([B, L_max, 37, 3], dtype=torch.float32) #[B,L,37,3] - xyz coordinates for all atoms if needed
-    xyz_37_m_batch = torch.zeros([B, L_max, 37], dtype=torch.int32) #[B,L,37] - mask for all coords
-    # Y_batch = torch.zeros([B, l_ligand_max, 3], dtype=torch.float32) #[B,l_max,3] - for ligandMPNN coords
-    # Y_t_batch = torch.zeros([B, l_ligand_max], dtype=torch.int32) #[B,l_max] - element type
-    # Y_m_batch = torch.zeros([B, l_ligand_max], dtype=torch.int32) #[B,l_max] - mask
-    Y_nbh_batch = torch.zeros([B, L_max, number_of_ligand_atoms, 3], dtype=torch.float32) #[B,L,30,3] - for ligandMPNN coords
-    Y_t_nbh_batch = torch.zeros([B, L_max, number_of_ligand_atoms], dtype=torch.int32) #[B,L,30] - element type
-    Y_m_nbh_batch = torch.zeros([B, L_max, number_of_ligand_atoms], dtype=torch.int32) #[B,L,30] - mask
-    X_batch = torch.zeros([B, L_max, 4, 3], dtype=torch.float32) #[B,L,4,3] - backbone xyz coordinates for N,CA,C,O
-    S_batch = torch.zeros([B, L_max], dtype=torch.long) #[B,L] - integer protein sequence encoded using "restype_STRtoINT"
-    R_idx_batch = torch.zeros([B, L_max], dtype=torch.long) #[B,L] - primary sequence residue index
-    mask_batch = torch.zeros([B, L_max], dtype=torch.int32) #[B,L] - mask for missing regions - should be removed! all ones most of the time
-    nn_idx_batch = torch.zeros([B, L_max, 30], dtype=torch.long) #[B,L,30]
-    mask_XY_batch = torch.zeros([B, L_max], dtype=torch.int32) #[B,L]
-    chain_labels_batch = torch.zeros([B, L_max], dtype=torch.long) #[B,L] - integer labels for chain letters
-    chain_mask_batch = torch.zeros([B, L_max], dtype=torch.long) #[B,L]
+    xyz_37_batch = torch.zeros([B, L_max, 37, 3], dtype=torch.float32, device=device) #[B,L,37,3] - xyz coordinates for all atoms if needed
+    xyz_37_m_batch = torch.zeros([B, L_max, 37], dtype=torch.int32, device=device) #[B,L,37] - mask for all coords
+    # Y_batch = torch.zeros([B, l_ligand_max, 3], dtype=torch.float32, device=device) #[B,l,3] - for ligandMPNN coords
+    # Y_t_batch = torch.zeros([B, l_ligand_max], dtype=torch.int32, device=device) #[B,l] - element type
+    # Y_m_batch = torch.zeros([B, l_ligand_max], dtype=torch.int32, device=device) #[B,l] - mask
+    Y_nbh_batch = torch.zeros([B, L_max, number_of_ligand_atoms, 3], dtype=torch.float32, device=device) #[B,L,M,3] - for ligandMPNN coords
+    Y_t_nbh_batch = torch.zeros([B, L_max, number_of_ligand_atoms], dtype=torch.int32, device=device) #[B,L,M] - element type
+    Y_m_nbh_batch = torch.zeros([B, L_max, number_of_ligand_atoms], dtype=torch.int32, device=device) #[B,L,M] - mask
+    X_batch = torch.zeros([B, L_max, 4, 3], dtype=torch.float32, device=device) #[B,L,4,3] - backbone xyz coordinates for N,CA,C,O
+    S_batch = torch.zeros([B, L_max], dtype=torch.long, device=device) #[B,L] - integer protein sequence encoded using "restype_STRtoINT"
+    R_idx_batch = torch.zeros([B, L_max], dtype=torch.long, device=device) #[B,L] - primary sequence residue index
+    mask_batch = torch.zeros([B, L_max], dtype=torch.int32, device=device) #[B,L] - mask for missing regions - should be removed! all ones most of the time
+    nn_idx_batch = torch.zeros([B, L_max, number_of_ligand_atoms], dtype=torch.long, device=device) #[B,L,M]
+    # Y_scale_batch = torch.ones([B, l_ligand_max], dtype=torch.int32, device=device) #[B,l] - Y_scale at least is 1
+    Y_scale_squeezed_list = list()
+    mask_XY_batch = torch.zeros([B, L_max], dtype=torch.int32, device=device) #[B,L]
+    chain_labels_batch = torch.zeros([B, L_max], dtype=torch.long, device=device) #[B,L] - integer labels for chain letters
+    chain_mask_batch = torch.zeros([B, L_max], dtype=torch.long, device=device) #[B,L]
 
     feature_dict = dict()
     feature_dict["batch_size"] = B
-    for i, input_dict in enumerate(batch):
+    for i_pdb, input_dict in enumerate(batch):
         # if model_type == "ligand_mpnn":
         l = input_dict["S"].shape[0]
         l_ligand = input_dict["Y"].shape[0]
         pad_n_residues = L_max - l
         # pad_n_ligand_atoms = l_ligand_max - l_ligand
-        # if pad_n_ligand_atoms < 0:
-        #     pad_n_ligand_atoms = 0
         pad_n_nbh_ligand_atoms = number_of_ligand_atoms - l_ligand
         if pad_n_nbh_ligand_atoms < 0:
             pad_n_nbh_ligand_atoms = 0
@@ -169,28 +170,46 @@ def batch_featurize(
         c = C - CA
         a = torch.cross(b, c, axis=-1)
         CB = -0.58273431 * a + 0.56802827 * b - 0.54067466 * c + CA # [L, 3]
-        mask_CBY = mask[:, None] * Y_m[None, :] # [L, 30]
-        L2_AB = torch.sum((CB[:, None, :] - Y[None, :, :]) ** 2, -1) # [L, 30]
-        L2_AB = L2_AB * mask_CBY + (1 - mask_CBY) * 1000.0 # [L, 30]
-        nn_idx = torch.argsort(L2_AB, -1)[:, :number_of_ligand_atoms] # [L, 30] nn means nearest neighbor
-        nn_idx_batch[i,:,:] = F.pad(nn_idx, (0, pad_n_nbh_ligand_atoms, 0, pad_n_residues), mode="constant", value=0)
-        L2_AB_nn = torch.gather(L2_AB, 1, nn_idx) # [L, 30]
-        D_XY = torch.sqrt(L2_AB_nn[:, 0]) # D_AB_closest [L]
+        mask_CBY = mask[:, None] * Y_m[None, :] # [L, M]
+        L2_AB = torch.sum((CB[:, None, :] - Y[None, :, :]) ** 2, -1) # [L, M]
+        L2_AB = L2_AB * mask_CBY + (1 - mask_CBY) * 1000.0 # [L, M]
+        nn_idx = torch.argsort(L2_AB, -1)[:, :number_of_ligand_atoms] # [L, M], nn means nearest neighbor
         Y_nbh = gather_context_atom_features(Y, nn_idx)
         Y_t_nbh = gather_context_atoms(Y_t, nn_idx)
         Y_m_nbh = gather_context_atoms(Y_m, nn_idx)
-        mask_XY = (D_XY < cutoff_for_score) * mask * Y_m_nbh[:, 0] # [L], whether a residue has context atoms or not
-        mask_XY_batch[i,:] = F.pad(mask_XY, (0, pad_n_residues), mode="constant", value=0)
+        L2_AB_nn = torch.gather(L2_AB, 1, nn_idx) # [L, M]
+        D_XY = torch.sqrt(L2_AB_nn[:, 0]) # D_AB_closest [L]
+        mask_XY = (D_XY < cutoff_for_score) * mask * Y_m_nbh[:, 0] # [L], residues have context atoms or not
+        mask_XY_batch[i_pdb,:] = F.pad(mask_XY, (0, pad_n_residues), mode="constant", value=0)
+        Y_mask_scattered = torch.zeros([l, l_ligand], dtype=torch.int32, device=device) # [L, l]
+        Y_scale_unsqueezed = torch.sum(Y_mask_scattered.scatter_(
+            1, nn_idx, torch.ones_like(nn_idx, dtype=torch.int32, device=device)
+            ), dim=0) # [l]
+        # squeeze ligand atoms without neighborhood residues
+        nn_idx_squeezed_scattered = [-1] * l_ligand
+        Y_scale_squeezed = list()
+        for i_atom, scale in enumerate(Y_scale_unsqueezed):
+            if scale > 0:
+                nn_idx_squeezed_scattered[i_atom] = len(Y_scale_squeezed)
+                Y_scale_squeezed.append(scale)
+        nn_idx_squeezed_scattered = torch.tensor(nn_idx_squeezed_scattered, dtype=torch.int32, device=device)
+        nn_idx_squeezed = gather_context_atoms(nn_idx_squeezed_scattered, nn_idx)
+        nn_idx_batch[i_pdb,:,:] = F.pad(nn_idx_squeezed, (0, pad_n_nbh_ligand_atoms, 0, pad_n_residues), mode="constant", value=0)
+        Y_scale_squeezed = torch.tensor(Y_scale_squeezed, dtype=torch.int32, device=device)
+        # Y_scale_batch[i_pdb,] = F.pad(Y_scale, (0, pad_n_ligand_atoms), mode="constant", value=1) # Y_scale at least is 1
+        if l_ligand_squeezed_max < Y_scale_squeezed.shape[0]:
+            l_ligand_squeezed_max = Y_scale_squeezed.shape[0]
+        Y_scale_squeezed_list.append(Y_scale_squeezed)
         # if "side_chain_mask" in list(input_dict):
         #     output_dict["side_chain_mask"] = input_dict["side_chain_mask"][None,]
-        # Y_batch[i,:,:] = F.pad(Y, (0, 0, 0, pad_n_ligand_atoms), mode="constant", value=0)
-        # Y_t_batch[i,:] = F.pad(Y_t, (0, pad_n_ligand_atoms), mode="constant", value=0)
+        # Y_batch[i_pdb,:,:] = F.pad(Y, (0, 0, 0, pad_n_ligand_atoms), mode="constant", value=0)
+        # Y_t_batch[i_pdb,:] = F.pad(Y_t, (0, pad_n_ligand_atoms), mode="constant", value=0)
         # if use_atom_context:
-        #     Y_m_batch[i,:] = F.pad(Y_m, (0, pad_n_ligand_atoms), mode="constant", value=0)
-        Y_nbh_batch[i,:,:,:] = F.pad(Y_nbh, (0, 0, 0, pad_n_nbh_ligand_atoms, 0, pad_n_residues), mode="constant", value=0)
-        Y_t_nbh_batch[i,:,:] = F.pad(Y_t_nbh, (0, pad_n_nbh_ligand_atoms, 0, pad_n_residues), mode="constant", value=0)
+        #     Y_m_batch[i_pdb,:] = F.pad(Y_m, (0, pad_n_ligand_atoms), mode="constant", value=0)
+        Y_nbh_batch[i_pdb,:,:,:] = F.pad(Y_nbh, (0, 0, 0, pad_n_nbh_ligand_atoms, 0, pad_n_residues), mode="constant", value=0)
+        Y_t_nbh_batch[i_pdb,:,:] = F.pad(Y_t_nbh, (0, pad_n_nbh_ligand_atoms, 0, pad_n_residues), mode="constant", value=0)
         if use_atom_context:
-            Y_m_nbh_batch[i,:,:] = F.pad(Y_m_nbh, (0, pad_n_nbh_ligand_atoms, 0, pad_n_residues), mode="constant", value=0)
+            Y_m_nbh_batch[i_pdb,:,:] = F.pad(Y_m_nbh, (0, pad_n_nbh_ligand_atoms, 0, pad_n_residues), mode="constant", value=0)
 
         R_idx_list = list()
         count = 0
@@ -202,48 +221,53 @@ def batch_featurize(
             R_idx_prev = R_index
         # R_idx_renumbered = torch.tensor(R_idx_list, device=device)
         R_idx_renumbered = torch.tensor(R_idx_list)
-        R_idx_batch[i,:] = F.pad(R_idx_renumbered, (0, pad_n_residues), mode="constant", value=0)
+        R_idx_batch[i_pdb,:] = F.pad(R_idx_renumbered, (0, pad_n_residues), mode="constant", value=0)
         # output_dict["R_idx_original"] = input_dict["R_idx"][None,]
         chain_labels = input_dict["chain_labels"]
-        chain_labels_batch[i,:] = F.pad(chain_labels, (0, pad_n_residues), mode="constant", value=0)
+        chain_labels_batch[i_pdb,:] = F.pad(chain_labels, (0, pad_n_residues), mode="constant", value=0)
         S = input_dict["S"]
-        S_batch[i,:] = F.pad(S, (0, pad_n_residues), mode="constant", value=0)
+        S_batch[i_pdb,:] = F.pad(S, (0, pad_n_residues), mode="constant", value=0)
         # chain_mask = input_dict["chain_mask"]
         chain_mask = torch.ones((l))
-        chain_mask_batch[i,:] = F.pad(chain_mask, (0, pad_n_residues), mode="constant", value=0)
+        chain_mask_batch[i_pdb,:] = F.pad(chain_mask, (0, pad_n_residues), mode="constant", value=0)
         mask = input_dict["mask"]
-        mask_batch[i,:] = F.pad(mask, (0, pad_n_residues), mode="constant", value=0)
+        mask_batch[i_pdb,:] = F.pad(mask, (0, pad_n_residues), mode="constant", value=0)
         X = input_dict["X"]
         X_pad = F.pad(X, (0, 0, 0, 0, 0, pad_n_residues), mode="constant", value=0)
-        X_batch[i,:,:,:] = X_pad
+        X_batch[i_pdb,:,:,:] = X_pad
         xyz_37 = input_dict.get("xyz_37")
         if xyz_37 is not None:
             xyz_37_pad = F.pad(xyz_37, (0, 0, 0, 0, 0, pad_n_residues), mode="constant", value=0)
-            xyz_37_batch[i,:,:,:] = xyz_37_pad
+            xyz_37_batch[i_pdb,:,:,:] = xyz_37_pad
             xyz_37_m = input_dict.get("xyz_37_m")
             xyz_37_m_pad = F.pad(xyz_37_m, (0, 0, 0, pad_n_residues), mode="constant", value=0)
-            xyz_37_m_batch[i,:,:] = xyz_37_m_pad
+            xyz_37_m_batch[i_pdb,:,:] = xyz_37_m_pad
+    Y_scale_batch = torch.ones([B, l_ligand_squeezed_max], dtype=torch.int32, device=device) #[B,l] - Y_scale at least is 1
+    for Y_scale_squeezed in Y_scale_squeezed_list:
+        pad_n_ligand_atoms = l_ligand_squeezed_max - Y_scale_squeezed.shape[0]
+        Y_scale_batch[i_pdb,] = F.pad(Y_scale_squeezed, (0, pad_n_ligand_atoms), mode="constant", value=1) # Y_scale at least is 1pass
     feature_dict["xyz_37"] = xyz_37_batch #[B,L,37,3] - xyz coordinates for all atoms if needed
     feature_dict["xyz_37_m"] = xyz_37_m_batch #[B,L,37] - mask for all coords
-    # feature_dict["Y"] = Y_batch #[B,l_max,3] - for ligandMPNN coords
-    # feature_dict["Y_t"] = Y_t_batch #[B,l_max] - element type
-    # feature_dict["Y_m"] = Y_m_batch #[B,l_max] - mask
-    feature_dict["Y"] = Y_nbh_batch #[B,L,30,3] - for ligandMPNN coords
-    feature_dict["Y_t"] = Y_t_nbh_batch #[B,L,30] - element type
-    feature_dict["Y_m"] = Y_m_nbh_batch #[B,L,30] - mask
+    # feature_dict["Y"] = Y_batch #[B,l,3] - for ligandMPNN coords
+    # feature_dict["Y_t"] = Y_t_batch #[B,l] - element type
+    # feature_dict["Y_m"] = Y_m_batch #[B,l] - mask
+    feature_dict["Y"] = Y_nbh_batch #[B,L,M,3] - for ligandMPNN coords
+    feature_dict["Y_t"] = Y_t_nbh_batch #[B,L,M] - element type
+    feature_dict["Y_m"] = Y_m_nbh_batch #[B,L,M] - mask
     feature_dict["X"] = X_batch #[B,L,4,3] - backbone xyz coordinates for N,CA,C,O
     feature_dict["S"] = S_batch # [B,L] - integer protein sequence encoded using "restype_STRtoINT"
     feature_dict["R_idx"] = R_idx_batch #[B,L] - primary sequence residue index
     feature_dict["mask"] = mask_batch # [B,L] - mask for missing regions - should be removed! all ones most of the time
-    feature_dict["nn_idx"] = nn_idx_batch #[B,L,30]
+    feature_dict["nn_idx"] = nn_idx_batch #[B,L,M]
+    feature_dict["Y_scale"] = Y_scale_batch #[B,l]
     feature_dict["mask_XY"] = mask_XY_batch #[B,L]
     feature_dict["chain_labels"] = chain_labels_batch #[B,L] - integer labels for chain letters
     feature_dict["chain_mask"] = chain_mask_batch #[B,L]
     return feature_dict
 
 def gather_context_atom_features(Y, nn_idx):
-    # Y [l_max, C] at Neighbor indices [L, M] => Y [L, M, C]
-    Y_r = Y[None, :, :].repeat(nn_idx.shape[0], 1, 1) # [L, l_max, C]
+    # Y [l, C] at Neighbor indices [L, M] => Y [L, M, C]
+    Y_r = Y[None, :, :].repeat(nn_idx.shape[0], 1, 1) # [L, l, C]
     Y_tmp = torch.gather(Y_r, 1, nn_idx[:, :, None].repeat(1, 1, Y.shape[-1]))
     Y = torch.zeros(
         [nn_idx.shape[0], nn_idx.shape[1], Y.shape[-1]], dtype=torch.float32, device=Y.device
@@ -252,8 +276,8 @@ def gather_context_atom_features(Y, nn_idx):
     return Y
 
 def gather_context_atoms(Y_t, nn_idx):
-    # Y_t [l_max] at Neighbor indices [L, M] => Y [L, M]
-    Y_t_r = Y_t[None, :].repeat(nn_idx.shape[0], 1) # [L, l_max]
+    # Y_t [l] at Neighbor indices [L, M] => Y [L, M]
+    Y_t_r = Y_t[None, :].repeat(nn_idx.shape[0], 1) # [L, l]
     Y_t_tmp = torch.gather(Y_t_r, 1, nn_idx)
     Y_t = torch.zeros(
         [nn_idx.shape[0], nn_idx.shape[1]], dtype=torch.int32, device=Y_t.device
