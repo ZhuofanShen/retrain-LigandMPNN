@@ -11,11 +11,14 @@ import queue
 
 from model_data_utils import PDBDataset, load_pdb_pt, worker_init_fn, \
         get_pdbs, batch_featurize, get_std_opt, Batches
-# from model import loss_smoothed, loss_nll, ProteinMPNN
-from model_protein2ligand_MPNN import loss_smoothed, loss_nll, ProteinMPNN
 
 
 def main(args):
+    if args.model_type == "ligand_mpnn_new":
+        from model_protein2ligand_MPNN import loss_smoothed, loss_nll, ProteinMPNN
+    else:
+        from model import loss_smoothed, loss_nll, ProteinMPNN
+
     scaler = GradScaler()
     device = torch.device("cuda" if (torch.cuda.is_available()) else "cpu")
 
@@ -59,7 +62,7 @@ def main(args):
                         model_type=args.model_type,
                         atom_context_num=args.atom_context_num,
                         device=device)
-    # model.to(device)
+    model.to(device)
     
     if PATH:
         checkpoint = torch.load(PATH)
@@ -213,7 +216,7 @@ if __name__ == "__main__":
     argparser.add_argument("--num_encoder_layers", type=int, default=3, help="number of encoder layers")
     argparser.add_argument("--num_decoder_layers", type=int, default=3, help="number of decoder layers")
     argparser.add_argument("--num_neighbors", type=int, default=48, help="number of neighbors for the sparse graph")
-    argparser.add_argument("--model_type", type=str, choices=["protein_mpnn", "ligand_mpnn", "soluble_mpnn"], default="ligand_mpnn", help="model type")
+    argparser.add_argument("--model_type", type=str, choices=["protein_mpnn", "ligand_mpnn", "ligand_mpnn_new", "soluble_mpnn"], default="ligand_mpnn_new", help="model type")
     argparser.add_argument("--atom_context_num", type=int, default=30, help="number of context atom neighbors for the sparse graph")
     # argparser.add_argument("--dropout", type=float, default=0.1, help="dropout level; 0.0 means no dropout")
     argparser.add_argument("--backbone_noise", type=float, default=0.2, help="amount of noise added to backbone during training")
