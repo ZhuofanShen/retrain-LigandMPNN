@@ -33,8 +33,8 @@ def cat_neighbors_nodes(h_nodes, h_neighbors, E_idx):
     return h_nn
 
 def gather_context_atom_features_batch(Y, nn_idx):
-    # Y [B, l_max, C] at Neighbor indices [B, L, M] => Y [B, L, M, C]
-    Y_r = Y[:, None, :, :].repeat(1, nn_idx.shape[1], 1, 1) # [B, L, l_max, C]
+    # Y [B, l, C] at Neighbor indices [B, L, M] => Y [B, L, M, C]
+    Y_r = Y[:, None, :, :].repeat(1, nn_idx.shape[1], 1, 1) # [B, L, l, C]
     Y_tmp = torch.gather(Y_r, 2, nn_idx[:, :, :, None].repeat(1, 1, 1, Y.shape[-1]))
     Y = torch.zeros(
         [nn_idx.shape[0], nn_idx.shape[1], nn_idx.shape[2], Y.shape[-1]], 
@@ -170,6 +170,7 @@ class ProteinMPNN(torch.nn.Module):
             "mask"
         ]  # [B,L] - mask for missing regions - should be removed! all ones most of the time
         nn_idx = feature_dict["nn_idx"]
+        Y_scale = feature_dict["Y_scale"]
 
         device = S_true.device
 
@@ -205,7 +206,7 @@ class ProteinMPNN(torch.nn.Module):
         h_V = h_V + self.V_C_norm(self.dropout(h_V_C)) # [B,L,C]
 
         # protein-ligand graph: update ligand nodes and edges
-        h_Y, h_E_context = self.protein2ligandlayer(nn_idx, Y_nodes, h_E_context, h_V, mask, Y_m)
+        h_Y, h_E_context = self.protein2ligandlayer(nn_idx, Y_scale, Y_nodes, h_E_context, h_V, mask, Y_m)
         
         # protein-ligand graph: neighborhood ligand nodes --> update central residue nodes
         h_E_context_cat = torch.cat([h_E_context, h_Y], -1) # [B,L,M,2C]
@@ -484,7 +485,7 @@ class ProteinFeaturesLigand(torch.nn.Module):
             )
             R_t = self.side_chain_atom_types[None, None, None, :].repeat(
                 B, L, E_idx_sub.shape[2], 1
-            ).to(R.device)
+            )
 
             # Side chain atom context
             R = R.view(B, L, -1, 3)  # coordinates
@@ -508,8 +509,8 @@ class ProteinFeaturesLigand(torch.nn.Module):
             Y_m = torch.gather(Y_m, 2, E_idx_Y)
 
         Y_t = Y_t.long()
-        Y_t_g = self.periodic_table_features[1][Y_t].to(Y_t.device)  # group; 19 categories including 0
-        Y_t_p = self.periodic_table_features[2][Y_t].to(Y_t.device)  # period; 8 categories including 0
+        Y_t_g = self.periodic_table_features[1][Y_t]  # group; 19 categories including 0
+        Y_t_p = self.periodic_table_features[2][Y_t]  # period; 8 categories including 0
 
         Y_t_g_1hot_ = F.one_hot(Y_t_g, 19)  # [B, L, M, 19]
         Y_t_p_1hot_ = F.one_hot(Y_t_p, 8)  # [B, L, M, 8]
@@ -697,7 +698,7 @@ class Protein2LigandLayer(torch.nn.Module):
         self.act = torch.nn.GELU()
         self.dense = PositionWiseFeedForward(num_hidden, num_hidden * 4)
 
-    def forward(self, nn_idx, Y_nodes, h_E_context, h_V, mask_V=None, mask_attend=None):
+    def forward(self, nn_idx, Y_scale, Y_nodes, h_E_context, h_V, mask_V=None, mask_attend=None):
         # central residue nodes --> update neighborhood ligand nodes
         h_V_expand = h_V.unsqueeze(-2).expand(-1, -1, Y_nodes.size(-2), -1)
         h_EV = torch.cat([Y_nodes, h_E_context, h_V_expand], -1)
@@ -707,13 +708,12 @@ class Protein2LigandLayer(torch.nn.Module):
 
         # average messages passing to Y_nodes representing each same ligand atom
         # dh = torch.sum(h_message, -2) / self.scale
-        l_max = torch.max(nn_idx) + 1
         h_message_scattered = torch.zeros(
-            [h_message.shape[0], h_message.shape[1], l_max, h_message.shape[3]], 
+            [h_message.shape[0], h_message.shape[1], Y_scale.shape[1], h_message.shape[3]], 
             dtype=torch.float32, device=Y_nodes.device
-        ) # [B,L,l_max,C]
+        ) # [B,L,l,C]
         h_message_scattered.scatter_(2, nn_idx[:, :, :, None].repeat(1, 1, 1, h_message.shape[3]), h_message)
-        dh = torch.sum(h_message_scattered, dim=1) # [B,l_max,C]
+        dh = torch.div(torch.sum(h_message_scattered, dim=1), Y_scale) # [B,l,C]
         dh = gather_context_atom_features_batch(dh, nn_idx) # [B,L,M,C]
 
         # update neighborhood ligand nodes
