@@ -14,7 +14,7 @@
 #SBATCH --open-mode=append
 
 python ./train.py \
-       --cpus_per_task 1 \
+       --cpus_per_task 12 \
        --path_for_outputs "./exp_020" \
        --path_for_training_data "sample" \
        --num_examples_per_epoch 100 \
