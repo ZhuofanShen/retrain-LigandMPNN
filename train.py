@@ -78,14 +78,13 @@ def main(args):
     if PATH:
         optimizer.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
-    if args.cpus_per_task > 1:
-        torch.multiprocessing.set_start_method('spawn')
-        executor = ProcessPoolExecutor(max_workers=12)
-        q = queue.Queue(maxsize=3)
-        p = queue.Queue(maxsize=3)
-        for _ in range(3):
-            q.put_nowait(executor.submit(get_pdbs, train_loader, args.max_protein_length, args.num_examples_per_epoch))
-            p.put_nowait(executor.submit(get_pdbs, valid_loader, args.max_protein_length, args.num_examples_per_epoch))
+    torch.multiprocessing.set_start_method('spawn')
+    executor = ProcessPoolExecutor(max_workers=args.cpus_per_task)
+    q = queue.Queue(maxsize=3)
+    p = queue.Queue(maxsize=3)
+    for _ in range(3):
+        q.put_nowait(executor.submit(get_pdbs, train_loader, args.max_protein_length, args.num_examples_per_epoch))
+        p.put_nowait(executor.submit(get_pdbs, valid_loader, args.max_protein_length, args.num_examples_per_epoch))
 
     for e in range(args.num_epochs):
         t0 = time.time()
@@ -95,17 +94,13 @@ def main(args):
         train_acc = 0.
 
         if e % args.reload_data_every_n_epochs == 0:
-            if args.cpus_per_task > 1:
-                pdb_dict_train = q.get().result()
-                pdb_dict_valid = p.get().result()
-                if e > epoch:
-                    q.put_nowait(executor.submit(get_pdbs, train_loader, args.max_protein_length, args.num_examples_per_epoch))
-                    p.put_nowait(executor.submit(get_pdbs, valid_loader, args.max_protein_length, args.num_examples_per_epoch))
-            else:
-                pdb_dict_train = get_pdbs(train_loader, args.max_protein_length, args.num_examples_per_epoch)
-                pdb_dict_valid = get_pdbs(valid_loader, args.max_protein_length, args.num_examples_per_epoch)
+            pdb_dict_train = q.get().result()
+            pdb_dict_valid = p.get().result()
             train_batch_list = Batches(pdb_dict_train, max_length=args.max_protein_length, batch_size=args.batch_size)
             valid_batch_list = Batches(pdb_dict_valid, max_length=args.max_protein_length, batch_size=args.batch_size)
+            if e > epoch:
+                q.put_nowait(executor.submit(get_pdbs, train_loader, args.max_protein_length, args.num_examples_per_epoch))
+                p.put_nowait(executor.submit(get_pdbs, valid_loader, args.max_protein_length, args.num_examples_per_epoch))
 
         for batch in train_batch_list:
             start_batch = time.time()
@@ -153,6 +148,8 @@ def main(args):
             for batch in valid_batch_list:
                 batch_feature_dict = batch_featurize(batch, device)
                 log_probs = model(batch_feature_dict)
+                S = batch_feature_dict["S"]
+                mask_for_loss = batch_feature_dict["mask"]
                 loss, loss_av, true_false = loss_nll(S, log_probs, mask_for_loss)
                 
                 validation_sum += torch.sum(loss * mask_for_loss).cpu().data.numpy()
@@ -202,7 +199,7 @@ def main(args):
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    argparser.add_argument("--cpus_per_task", type=int, default=1, help="number of CPUs allocated to the training task")
+    argparser.add_argument("--cpus_per_task", type=int, default=12, help="number of CPUs allocated to the training task")
     argparser.add_argument("--path_for_training_data", type=str, default="training", help="path for loading training data")
     argparser.add_argument("--path_for_outputs", type=str, default="./exp_020", help="path for logs and model weights")
     argparser.add_argument("--previous_checkpoint", type=str, default="", help="path for previous model weights, e.g. file.pt")
