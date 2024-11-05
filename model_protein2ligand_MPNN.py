@@ -118,15 +118,8 @@ class ProteinMPNN(torch.nn.Module):
         self.W_nodes_y = torch.nn.Linear(hidden_dim, hidden_dim, bias=True)
         self.W_edges_y = torch.nn.Linear(hidden_dim, hidden_dim, bias=True)
 
-        self.y_context_encoder_layers = torch.nn.ModuleList(
-            [DecLayerJ(hidden_dim, hidden_dim, dropout=dropout) for _ in range(2)]
-        )
-        self.context_encoder_layers = torch.nn.ModuleList(
-            [
-                DecLayer(hidden_dim, hidden_dim * 2, dropout=dropout)
-                for _ in range(2)
-            ]
-        )
+        self.y_context_encoder_layer_1 = DecLayerJ(hidden_dim, hidden_dim, dropout=dropout)
+        self.context_encoder_layer_1 = DecLayer(hidden_dim, hidden_dim * 2, dropout=dropout)
 
         self.V_C = torch.nn.Linear(hidden_dim, hidden_dim, bias=False)
         self.V_C_norm = torch.nn.LayerNorm(hidden_dim)
@@ -134,7 +127,8 @@ class ProteinMPNN(torch.nn.Module):
 
         self.protein2ligandlayer = Protein2LigandLayer(hidden_dim, hidden_dim * 2, dropout=dropout)
 
-        self.updated_context_encoder_layer = DecLayer(hidden_dim, hidden_dim * 2, dropout=dropout)
+        self.y_context_encoder_layer_2 = DecLayerJ(hidden_dim, hidden_dim, dropout=dropout)
+        self.context_encoder_layer_2 = DecLayer(hidden_dim, hidden_dim * 2, dropout=dropout)
 
         self.V_C_2 = torch.nn.Linear(hidden_dim, hidden_dim, bias=False)
         self.V_C_norm_2 = torch.nn.LayerNorm(hidden_dim)
@@ -183,35 +177,41 @@ class ProteinMPNN(torch.nn.Module):
         mask_attend = gather_nodes(mask.unsqueeze(-1), E_idx).squeeze(-1)
         mask_attend = mask.unsqueeze(-1) * mask_attend #[B,L,M,M,C]
         for encoder_layer in self.encoder_layers:
-            h_V, h_E = encoder_layer(h_V, h_E, E_idx, mask, mask_attend)
-            # ([B,L,C], [B,L,K,C]) --> ([B,L,C], [B,L,K,C])
+            h_V, h_E = torch.utils.checkpoint.checkpoint(
+                encoder_layer, h_V, h_E, E_idx, mask, mask_attend, use_reentrant=True
+            ) # ([B,L,C], [B,L,K,C]) --> ([B,L,C], [B,L,K,C])
 
         h_V_C = self.W_c(h_V) #[B,L,C]
         Y_m_edges = Y_m[:, :, :, None] * Y_m[:, :, None, :] #[B,L,M,M,C]
         Y_nodes = self.W_nodes_y(Y_nodes) #[B,L,M,C]
         Y_edges = self.W_edges_y(Y_edges) #[B,L,M,M,C]
-        for y_context_encoder_layer, context_encoder_layer in \
-                zip(self.y_context_encoder_layers, self.context_encoder_layers):
-            # ligand graph: neighborhood ligand nodes & edges --> update central ligand nodes
-            Y_nodes = y_context_encoder_layer(
-                Y_nodes, Y_edges, Y_m, Y_m_edges
-            ) # ([B,L,M,C], [B,L,M,M,C]) --> [B,L,M,C]
-            # protein-ligand graph: neighborhood ligand nodes --> update central residue nodes
-            h_E_context_cat = torch.cat([h_E_context, Y_nodes], -1) # [B,L,M,2C]
-            h_V_C = context_encoder_layer(
-                h_V_C, h_E_context_cat, mask, Y_m
-            ) # ([B,L,C], [B,L,M,2C]) --> [B,L,C]
+
+        # ligand graph: neighborhood ligand nodes & edges --> update central ligand nodes
+        Y_nodes = torch.utils.checkpoint.checkpoint(
+            self.y_context_encoder_layer_1, Y_nodes, Y_edges, Y_m, Y_m_edges, use_reentrant=True
+        ) # ([B,L,M,C], [B,L,M,M,C]) --> [B,L,M,C]
+        # protein-ligand graph: neighborhood ligand nodes --> update central residue nodes
+        h_E_context_cat = torch.cat([h_E_context, Y_nodes], -1) # [B,L,M,2C]
+        h_V_C = torch.utils.checkpoint.checkpoint(
+            self.context_encoder_layer_1, h_V_C, h_E_context_cat, mask, Y_m, use_reentrant=True
+        ) # ([B,L,C], [B,L,M,2C]) --> [B,L,C]
 
         h_V_C = self.V_C(h_V_C) # [B,L,C]
         h_V = h_V + self.V_C_norm(self.dropout(h_V_C)) # [B,L,C]
 
         # protein-ligand graph: update ligand nodes and edges
-        h_Y, h_E_context = self.protein2ligandlayer(nn_idx, Y_scale, Y_nodes, h_E_context, h_V, mask, Y_m)
-        
+        h_Y, h_E_context = torch.utils.checkpoint.checkpoint(
+            self.protein2ligandlayer, nn_idx, Y_scale, Y_nodes, h_E_context, h_V, mask, Y_m, use_reentrant=True
+        )
+
+        # ligand graph: neighborhood ligand nodes & edges --> update central ligand nodes
+        h_Y = torch.utils.checkpoint.checkpoint(
+            self.y_context_encoder_layer_2, h_Y, Y_edges, Y_m, Y_m_edges, use_reentrant=True
+        ) # ([B,L,M,C], [B,L,M,M,C]) --> [B,L,M,C]
         # protein-ligand graph: neighborhood ligand nodes --> update central residue nodes
         h_E_context_cat = torch.cat([h_E_context, h_Y], -1) # [B,L,M,2C]
-        h_V_C = self.updated_context_encoder_layer(
-            h_V_C, h_E_context_cat, mask, Y_m
+        h_V_C = torch.utils.checkpoint.checkpoint(
+            self.context_encoder_layer_2, h_V_C, h_E_context_cat, mask, Y_m, use_reentrant=True
         ) # ([B,L,C], [B,L,M,2C]) --> [B,L,C]
 
         h_V_C = self.V_C_2(h_V_C) # [B,L,C]
@@ -245,10 +245,6 @@ class ProteinMPNN(torch.nn.Module):
         decoding_order = torch.argsort(
             (chain_mask + 0.0001) * (torch.abs(torch.randn(chain_mask.shape, device=device)))
         )  # [numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0]
-        
-        # # repeat for decoding ???
-        # E_idx = E_idx.repeat(B_decoder, 1, 1)
-
         permutation_matrix_reverse = F.one_hot(
             decoding_order, num_classes=L
         ).float()
@@ -267,21 +263,6 @@ class ProteinMPNN(torch.nn.Module):
         h_S = self.W_s(S)
         h_ES = cat_neighbors_nodes(h_S, h_E, E_idx)
 
-        # # repeat for decoding
-        # S = S.repeat(B_decoder, 1)
-        # h_V = h_V.repeat(B_decoder, 1, 1)
-        # h_E = h_E.repeat(B_decoder, 1, 1, 1)
-        # chain_mask = chain_mask.repeat(B_decoder, 1)
-        # mask = mask.repeat(B_decoder, 1)
-        # bias = bias.repeat(B_decoder, 1, 1)
-
-        # h_S = torch.zeros_like(h_V, device=device)
-        # S = 20 * torch.ones((B_decoder, L), dtype=torch.int64, device=device)
-        # h_V_stack = [h_V] + [
-        #     torch.zeros_like(h_V, device=device)
-        #     for _ in range(len(self.decoder_layers))
-        # ]
-
         h_EX_encoder = cat_neighbors_nodes(torch.zeros_like(h_S), h_E, E_idx)
         h_EXV_encoder = cat_neighbors_nodes(h_V, h_EX_encoder, E_idx)
         h_EXV_encoder_fw = mask_fw * h_EXV_encoder
@@ -289,8 +270,9 @@ class ProteinMPNN(torch.nn.Module):
         for decoder_layer in self.decoder_layers:
             h_ESV = cat_neighbors_nodes(h_V, h_ES, E_idx)
             h_ESV = mask_bw * h_ESV + h_EXV_encoder_fw
-            # h_V = decoder_layer(h_V, h_ESV, mask)
-            h_V = torch.utils.checkpoint.checkpoint(decoder_layer, h_V, h_ESV, mask)
+            h_V = torch.utils.checkpoint.checkpoint(
+                decoder_layer, h_V, h_ESV, mask, use_reentrant=True
+            )
 
         logits = self.W_out(h_V)
         log_probs = F.log_softmax(logits, dim=-1)
@@ -710,10 +692,11 @@ class Protein2LigandLayer(torch.nn.Module):
         # dh = torch.sum(h_message, -2) / self.scale
         h_message_scattered = torch.zeros(
             [h_message.shape[0], h_message.shape[1], Y_scale.shape[1], h_message.shape[3]], 
-            dtype=torch.float32, device=Y_nodes.device
+            dtype=h_message.dtype, device=Y_nodes.device
         ) # [B,L,l,C]
         h_message_scattered.scatter_(2, nn_idx[:, :, :, None].repeat(1, 1, 1, h_message.shape[3]), h_message)
-        dh = torch.div(torch.sum(h_message_scattered, dim=1), Y_scale) # [B,l,C]
+        dh = torch.div(torch.sum(h_message_scattered, dim=1), 
+                       Y_scale[:,:,None].repeat(1,1,h_message_scattered.shape[-1])) # [B,l,C]
         dh = gather_context_atom_features_batch(dh, nn_idx) # [B,L,M,C]
 
         # update neighborhood ligand nodes
