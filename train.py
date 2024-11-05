@@ -8,7 +8,6 @@ from torch.nn.utils import clip_grad_norm_
 from concurrent.futures import ProcessPoolExecutor
 import queue
 
-
 from model_data_utils import PDBDataset, load_pdb_pt, worker_init_fn, \
         get_pdbs, batch_featurize, get_std_opt, Batches
 
@@ -53,12 +52,14 @@ def main(args):
     valid_set = PDBDataset(valid, valid_data_path, load_pdb_pt)
     valid_loader = DataLoader(valid_set, worker_init_fn=worker_init_fn)
 
-    model = ProteinMPNN(node_features=args.hidden_dim, 
-                        edge_features=args.hidden_dim, 
-                        hidden_dim=args.hidden_dim, 
-                        num_encoder_layers=args.num_encoder_layers, 
-                        num_decoder_layers=args.num_encoder_layers, 
-                        k_neighbors=args.num_neighbors, 
+    model = ProteinMPNN(node_features=args.hidden_dim,
+                        edge_features=args.hidden_dim,
+                        hidden_dim=args.hidden_dim,
+                        num_encoder_layers=args.num_encoder_layers,
+                        num_decoder_layers=args.num_encoder_layers,
+                        k_neighbors=args.num_neighbors,
+                        augment_eps=args.backbone_noise,
+                        dropout=args.dropout,
                         model_type=args.model_type,
                         atom_context_num=args.atom_context_num,
                         device=device)
@@ -179,6 +180,7 @@ def main(args):
                     'epoch': e+1,
                     'step': total_step,
                     'num_edges' : args.num_neighbors,
+                    'atom_context_num': args.atom_context_num,
                     'noise_level': args.backbone_noise,
                     'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.optimizer.state_dict(),
@@ -190,6 +192,7 @@ def main(args):
                     'epoch': e+1,
                     'step': total_step,
                     'num_edges' : args.num_neighbors,
+                    'atom_context_num': args.atom_context_num,
                     'noise_level': args.backbone_noise, 
                     'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.optimizer.state_dict(),
@@ -215,9 +218,9 @@ if __name__ == "__main__":
     argparser.add_argument("--num_neighbors", type=int, default=48, help="number of neighbors for the sparse graph")
     argparser.add_argument("--model_type", type=str, choices=["protein_mpnn", "ligand_mpnn", "ligand_mpnn_new", "soluble_mpnn"], default="ligand_mpnn_new", help="model type")
     argparser.add_argument("--atom_context_num", type=int, default=30, help="number of context atom neighbors for the sparse graph")
-    # argparser.add_argument("--dropout", type=float, default=0.1, help="dropout level; 0.0 means no dropout")
+    argparser.add_argument("--dropout", type=float, default=0.1, help="dropout level; 0.0 means no dropout")
     argparser.add_argument("--backbone_noise", type=float, default=0.2, help="amount of noise added to backbone during training")
-    argparser.add_argument("--rescut", type=float, default=3.5, help="PDB resolution cutoff")
+    # argparser.add_argument("--rescut", type=float, default=3.5, help="PDB resolution cutoff")
     argparser.add_argument("--debug", type=bool, default=False, help="minimal data loading for debugging")
     argparser.add_argument("--gradient_norm", type=float, default=-1.0, help="clip gradient norm, set to negative to omit clipping")
     argparser.add_argument("--mixed_precision", type=bool, default=True, help="train with mixed precision")
