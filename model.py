@@ -162,8 +162,9 @@ class ProteinMPNN(torch.nn.Module):
         mask_attend = gather_nodes(mask.unsqueeze(-1), E_idx).squeeze(-1)
         mask_attend = mask.unsqueeze(-1) * mask_attend #[B,L,M,M,C]
         for encoder_layer in self.encoder_layers:
-            h_V, h_E = encoder_layer(h_V, h_E, E_idx, mask, mask_attend)
-            # ([B,L,C], [B,L,K,C]) --> ([B,L,C], [B,L,K,C])
+            h_V, h_E = torch.utils.checkpoint.checkpoint(
+                encoder_layer, h_V, h_E, E_idx, mask, mask_attend, use_reentrant=True
+            ) # ([B,L,C], [B,L,K,C]) --> ([B,L,C], [B,L,K,C])
 
         h_V_C = self.W_c(h_V) #[B,L,C]
         Y_m_edges = Y_m[:, :, :, None] * Y_m[:, :, None, :] #[B,L,M,M,C]
@@ -172,13 +173,13 @@ class ProteinMPNN(torch.nn.Module):
         for y_context_encoder_layer, context_encoder_layer in \
                 zip(self.y_context_encoder_layers, self.context_encoder_layers):
             # ligand graph: neighborhood ligand nodes & edges --> update central ligand nodes
-            Y_nodes = y_context_encoder_layer(
-                Y_nodes, Y_edges, Y_m, Y_m_edges
+            Y_nodes = torch.utils.checkpoint.checkpoint(
+                y_context_encoder_layer, Y_nodes, Y_edges, Y_m, Y_m_edges, use_reentrant=True
             ) # ([B,L,M,C], [B,L,M,M,C]) --> [B,L,M,C]
             # protein-ligand graph: neighborhood ligand nodes --> update central residue nodes
             h_E_context_cat = torch.cat([h_E_context, Y_nodes], -1) # [B,L,M,2C]
-            h_V_C = context_encoder_layer(
-                h_V_C, h_E_context_cat, mask, Y_m
+            h_V_C = torch.utils.checkpoint.checkpoint(
+                context_encoder_layer, h_V_C, h_E_context_cat, mask, Y_m, use_reentrant=True
             ) # ([B,L,C], [B,L,M,2C]) --> [B,L,C]
 
         h_V_C = self.V_C(h_V_C) # [B,L,C]
@@ -212,10 +213,6 @@ class ProteinMPNN(torch.nn.Module):
         decoding_order = torch.argsort(
             (chain_mask + 0.0001) * (torch.abs(torch.randn(chain_mask.shape, device=device)))
         )  # [numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0]
-
-        # # repeat for decoding ???
-        # E_idx = E_idx.repeat(B_decoder, 1, 1)
-
         permutation_matrix_reverse = F.one_hot(
             decoding_order, num_classes=L
         ).float()
@@ -230,34 +227,18 @@ class ProteinMPNN(torch.nn.Module):
         mask_bw = mask_1D * mask_attend
         mask_fw = mask_1D * (1.0 - mask_attend)
 
-        # Concatenate sequence embeddings for autoregressive decoder
-        h_S = self.W_s(S)
-        h_ES = cat_neighbors_nodes(h_S, h_E, E_idx)
-
-        # # repeat for decoding
-        # S = S.repeat(B_decoder, 1)
-        # h_V = h_V.repeat(B_decoder, 1, 1)
-        # h_E = h_E.repeat(B_decoder, 1, 1, 1)
-        # chain_mask = chain_mask.repeat(B_decoder, 1)
-        # mask = mask.repeat(B_decoder, 1)
-        # bias = bias.repeat(B_decoder, 1, 1)
-
-        # h_S = torch.zeros_like(h_V, device=device)
-        # S = 20 * torch.ones((B_decoder, L), dtype=torch.int64, device=device)
-        # h_V_stack = [h_V] + [
-        #     torch.zeros_like(h_V, device=device)
-        #     for _ in range(len(self.decoder_layers))
-        # ]
-
         h_EX_encoder = cat_neighbors_nodes(torch.zeros_like(h_S), h_E, E_idx)
         h_EXV_encoder = cat_neighbors_nodes(h_V, h_EX_encoder, E_idx)
         h_EXV_encoder_fw = mask_fw * h_EXV_encoder
 
+        # Concatenate sequence embeddings for autoregressive decoder
+        h_S = self.W_s(S)
+        h_ES = cat_neighbors_nodes(h_S, h_E, E_idx)
+
         for decoder_layer in self.decoder_layers:
             h_ESV = cat_neighbors_nodes(h_V, h_ES, E_idx)
             h_ESV = mask_bw * h_ESV + h_EXV_encoder_fw
-            # h_V = decoder_layer(h_V, h_ESV, mask)
-            h_V = torch.utils.checkpoint.checkpoint(decoder_layer, h_V, h_ESV, mask)
+            h_V = torch.utils.checkpoint.checkpoint(decoder_layer, h_V, h_ESV, mask, use_reentrant=True)
 
         logits = self.W_out(h_V)
         log_probs = F.log_softmax(logits, dim=-1)
