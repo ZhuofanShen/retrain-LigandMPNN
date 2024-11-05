@@ -71,12 +71,12 @@ class ProteinMPNN(torch.nn.Module):
         dropout=0.0,
         device=None,
         atom_context_num=0,
-        model_type="protein_mpnn",
+        model_type="ligand_mpnn",
         ligand_mpnn_use_side_chain_context=False,
     ):
         super(ProteinMPNN, self).__init__()
 
-        # self.model_type = model_type
+        self.model_type = model_type
         self.node_features = node_features
         self.edge_features = edge_features
         self.hidden_dim = hidden_dim
@@ -238,7 +238,9 @@ class ProteinMPNN(torch.nn.Module):
         for decoder_layer in self.decoder_layers:
             h_ESV = cat_neighbors_nodes(h_V, h_ES, E_idx)
             h_ESV = mask_bw * h_ESV + h_EXV_encoder_fw
-            h_V = torch.utils.checkpoint.checkpoint(decoder_layer, h_V, h_ESV, mask, use_reentrant=True)
+            h_V = torch.utils.checkpoint.checkpoint(
+                decoder_layer, h_V, h_ESV, mask, use_reentrant=True
+            )
 
         logits = self.W_out(h_V)
         log_probs = F.log_softmax(logits, dim=-1)
