@@ -19,7 +19,7 @@ for pdb in pdb_list:
     pdb_path = os.path.join(data_path, pdb + ".pdb")
     if os.path.isfile(pdb_path):
         try:
-            pdb_dict = parse_PDB(pdb_path, device='cuda')
+            pdb_dict = parse_PDB(pdb_path, device='cpu')
             torch.save(pdb_dict, os.path.join(data_path, pdb + ".pt"))
         except:
             pass
