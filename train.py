@@ -10,16 +10,10 @@ import queue
 
 from model_data_utils import PDBDataset, load_pdb_pt, worker_init_fn, \
         get_pdbs, batch_featurize, get_std_opt, Batches
+from model import loss_smoothed, loss_nll, ProteinMPNN
 
 
 def main(args):
-    if args.model_type == "ligand_mpnn_new":
-        from model_protein2ligand_MPNN import loss_smoothed, loss_nll, ProteinMPNN
-    elif args.model_type == "ligand_mpnn":
-        from model import loss_smoothed, loss_nll, ProteinMPNN
-    elif args.model_type == "protein_mpnn":
-        from model_ProteinMPNN import loss_smoothed, loss_nll, ProteinMPNN
-
     scaler = GradScaler()
     device = torch.device("cuda" if (torch.cuda.is_available()) else "cpu")
 
