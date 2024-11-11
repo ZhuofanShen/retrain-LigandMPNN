@@ -55,7 +55,6 @@ def loss_nll(S, log_probs, mask):
     loss_av = torch.sum(loss * mask) / torch.sum(mask)
     return loss, loss_av, true_false
 
-
 def loss_smoothed(S, log_probs, mask, weight=0.1):
     """ Negative log probabilities """
     S_onehot = torch.nn.functional.one_hot(S, 21).float()
@@ -82,7 +81,7 @@ class ProteinMPNN(torch.nn.Module):
         dropout=0.0,
         device=None,
         atom_context_num=0,
-        model_type="ligand_mpnn",
+        model_type="protein_mpnn",
         ligand_mpnn_use_side_chain_context=False,
     ):
         super(ProteinMPNN, self).__init__()
@@ -92,19 +91,8 @@ class ProteinMPNN(torch.nn.Module):
         self.edge_features = edge_features
         self.hidden_dim = hidden_dim
 
-        # if self.model_type == "ligand_mpnn":
-        self.features = ProteinFeaturesLigand(
-            node_features,
-            edge_features,
-            top_k=k_neighbors,
-            augment_eps=augment_eps,
-            device=device,
-            atom_context_num=atom_context_num,
-            use_side_chains=ligand_mpnn_use_side_chain_context,
-        )
         # Encoder layers
         self.W_e = torch.nn.Linear(edge_features, hidden_dim, bias=True)
-        self.W_v = torch.nn.Linear(node_features, hidden_dim, bias=True)
 
         self.encoder_layers = torch.nn.ModuleList(
             [
@@ -112,27 +100,63 @@ class ProteinMPNN(torch.nn.Module):
                 for _ in range(num_encoder_layers)
             ]
         )
+        
+        if self.model_type == "protein_mpnn":
+            self.features = ProteinFeatures(
+                node_features,
+                edge_features,
+                top_k=k_neighbors,
+                augment_eps=augment_eps
+            )
 
-        self.W_c = torch.nn.Linear(hidden_dim, hidden_dim, bias=True)
+        elif self.model_type == "ligand_mpnn" or self.model_type == "ligand_mpnn_new":
+            self.features = ProteinFeaturesLigand(
+                node_features,
+                edge_features,
+                top_k=k_neighbors,
+                augment_eps=augment_eps,
+                device=device,
+                atom_context_num=atom_context_num,
+                use_side_chains=ligand_mpnn_use_side_chain_context,
+            )
 
-        self.W_nodes_y = torch.nn.Linear(hidden_dim, hidden_dim, bias=True)
-        self.W_edges_y = torch.nn.Linear(hidden_dim, hidden_dim, bias=True)
+            self.W_c = torch.nn.Linear(hidden_dim, hidden_dim, bias=True)
+            self.W_v = torch.nn.Linear(node_features, hidden_dim, bias=True)
 
-        self.y_context_encoder_layer_1 = DecLayerJ(hidden_dim, hidden_dim, dropout=dropout)
-        self.context_encoder_layer_1 = DecLayer(hidden_dim, hidden_dim * 2, dropout=dropout)
+            self.W_nodes_y = torch.nn.Linear(hidden_dim, hidden_dim, bias=True)
+            self.W_edges_y = torch.nn.Linear(hidden_dim, hidden_dim, bias=True)
 
-        self.V_C = torch.nn.Linear(hidden_dim, hidden_dim, bias=False)
-        self.V_C_norm = torch.nn.LayerNorm(hidden_dim)
-        self.dropout = torch.nn.Dropout(dropout)
+            if self.model_type == "ligand_mpnn":
+                self.y_context_encoder_layers = torch.nn.ModuleList(
+                    [DecLayerJ(hidden_dim, hidden_dim, dropout=dropout) for _ in range(2)]
+                )
+                self.context_encoder_layers = torch.nn.ModuleList(
+                    [
+                        DecLayer(hidden_dim, hidden_dim * 2, dropout=dropout)
+                        for _ in range(2)
+                    ]
+                )
 
-        self.protein2ligandlayer = Protein2LigandLayer(hidden_dim, hidden_dim * 2, dropout=dropout)
+                self.V_C = torch.nn.Linear(hidden_dim, hidden_dim, bias=False)
+                self.V_C_norm = torch.nn.LayerNorm(hidden_dim)
+                self.dropout = torch.nn.Dropout(dropout)
 
-        self.y_context_encoder_layer_2 = DecLayerJ(hidden_dim, hidden_dim, dropout=dropout)
-        self.context_encoder_layer_2 = DecLayer(hidden_dim, hidden_dim * 2, dropout=dropout)
+            elif self.model_type == "ligand_mpnn_new":
+                self.y_context_encoder_layer_1 = DecLayerJ(hidden_dim, hidden_dim, dropout=dropout)
+                self.context_encoder_layer_1 = DecLayer(hidden_dim, hidden_dim * 2, dropout=dropout)
 
-        self.V_C_2 = torch.nn.Linear(hidden_dim, hidden_dim, bias=False)
-        self.V_C_norm_2 = torch.nn.LayerNorm(hidden_dim)
-        self.dropout_2 = torch.nn.Dropout(dropout)
+                self.V_C = torch.nn.Linear(hidden_dim, hidden_dim, bias=False)
+                self.V_C_norm = torch.nn.LayerNorm(hidden_dim)
+                self.dropout = torch.nn.Dropout(dropout)
+
+                self.protein2ligandlayer = Protein2LigandLayer(hidden_dim, hidden_dim * 2, dropout=dropout)
+
+                self.y_context_encoder_layer_2 = DecLayerJ(hidden_dim, hidden_dim, dropout=dropout)
+                self.context_encoder_layer_2 = DecLayer(hidden_dim, hidden_dim * 2, dropout=dropout)
+
+                self.V_C_2 = torch.nn.Linear(hidden_dim, hidden_dim, bias=False)
+                self.V_C_norm_2 = torch.nn.LayerNorm(hidden_dim)
+                self.dropout_2 = torch.nn.Dropout(dropout)
 
         # Decoder layers
         self.W_s = torch.nn.Embedding(vocab, hidden_dim)
@@ -150,29 +174,9 @@ class ProteinMPNN(torch.nn.Module):
             if p.dim() > 1:
                 torch.nn.init.xavier_uniform_(p)
 
-    def _encode(self, feature_dict):
-        # xyz_37 = feature_dict["xyz_37"] #[B,L,37,3] - xyz coordinates for all atoms if needed
-        # xyz_37_m = feature_dict["xyz_37_m"] #[B,L,37] - mask for all coords
-        # Y = feature_dict["Y"] #[B,L,30,3] - for ligandMPNN coords
-        # Y_t = feature_dict["Y_t"] #[B,L,30] - element type
-        # Y_m = feature_dict["Y_m"] #[B,L,30] - mask
-        # X = feature_dict["X"] #[B,L,4,3] - backbone xyz coordinates for N,CA,C,O
-        S_true = feature_dict[
-            "S"
-        ]  # [B,L] - integer protein sequence encoded using "restype_STRtoINT"
-        mask = feature_dict[
-            "mask"
-        ]  # [B,L] - mask for missing regions - should be removed! all ones most of the time
-        nn_idx = feature_dict["nn_idx"]
-        Y_scale = feature_dict["Y_scale"]
-
-        device = S_true.device
-
-        V, E, E_idx, Y_nodes, Y_edges, Y_m = self.features(feature_dict)
-        # V:[B,L,M,C] E:[B,L,K,C] E_idx:[B,L,K] Y_nodes:[B,L,M,C] Y_edges:[B,L,M,M,C] Y_m:[B,L,M]
-        h_V = torch.zeros((E.shape[0], E.shape[1], E.shape[-1]), device=device) #[B,L,C]
+    def protein_encode(self, E, E_idx, mask):
+        h_V = torch.zeros((E.shape[0], E.shape[1], E.shape[-1]), device=E.device) #[B,L,C]
         h_E = self.W_e(E) #[B,L,K,C]
-        h_E_context = self.W_v(V) #[B,L,M,C], protein-ligand edges
 
         mask_attend = gather_nodes(mask.unsqueeze(-1), E_idx).squeeze(-1)
         mask_attend = mask.unsqueeze(-1) * mask_attend #[B,L,M,M,C]
@@ -180,16 +184,48 @@ class ProteinMPNN(torch.nn.Module):
             h_V, h_E = torch.utils.checkpoint.checkpoint(
                 encoder_layer, h_V, h_E, E_idx, mask, mask_attend, use_reentrant=True
             ) # ([B,L,C], [B,L,K,C]) --> ([B,L,C], [B,L,K,C])
+        return h_V, h_E
 
+    def ligand_encode(self, h_V, mask, E_context, Y_nodes, Y_edges, Y_m):
         h_V_C = self.W_c(h_V) #[B,L,C]
-        Y_m_edges = Y_m[:, :, :, None] * Y_m[:, :, None, :] #[B,L,M,M,C]
+        h_E_context = self.W_v(E_context) #[B,L,M,C], protein-ligand edges
         Y_nodes = self.W_nodes_y(Y_nodes) #[B,L,M,C]
         Y_edges = self.W_edges_y(Y_edges) #[B,L,M,M,C]
+
+        Y_m_edges = Y_m[:, :, :, None] * Y_m[:, :, None, :] #[B,L,M,M,C]
+
+        for y_context_encoder_layer, context_encoder_layer in \
+                zip(self.y_context_encoder_layers, self.context_encoder_layers):
+
+            # ligand graph: neighborhood ligand nodes & edges --> update central ligand nodes
+            Y_nodes = torch.utils.checkpoint.checkpoint(
+                y_context_encoder_layer, Y_nodes, Y_edges, Y_m, Y_m_edges, use_reentrant=True
+            ) # ([B,L,M,C], [B,L,M,M,C]) --> [B,L,M,C]
+
+            # protein-ligand graph: neighborhood ligand nodes --> update central residue nodes
+            h_E_context_cat = torch.cat([h_E_context, Y_nodes], -1) # [B,L,M,2C]
+            h_V_C = torch.utils.checkpoint.checkpoint(
+                context_encoder_layer, h_V_C, h_E_context_cat, mask, Y_m, use_reentrant=True
+            ) # ([B,L,C], [B,L,M,2C]) --> [B,L,C]
+
+        h_V_C = self.V_C(h_V_C) # [B,L,C]
+        h_V = h_V + self.V_C_norm(self.dropout(h_V_C)) # [B,L,C]
+
+        return h_V
+
+    def ligand_encode_new(self, h_V, mask, E_context, Y_nodes, Y_edges, Y_m, nn_idx, Y_scale):
+        h_V_C = self.W_c(h_V) #[B,L,C]
+        h_E_context = self.W_v(E_context) #[B,L,M,C], protein-ligand edges
+        Y_nodes = self.W_nodes_y(Y_nodes) #[B,L,M,C]
+        Y_edges = self.W_edges_y(Y_edges) #[B,L,M,M,C]
+
+        Y_m_edges = Y_m[:, :, :, None] * Y_m[:, :, None, :] #[B,L,M,M,C]
 
         # ligand graph: neighborhood ligand nodes & edges --> update central ligand nodes
         Y_nodes = torch.utils.checkpoint.checkpoint(
             self.y_context_encoder_layer_1, Y_nodes, Y_edges, Y_m, Y_m_edges, use_reentrant=True
         ) # ([B,L,M,C], [B,L,M,M,C]) --> [B,L,M,C]
+
         # protein-ligand graph: neighborhood ligand nodes --> update central residue nodes
         h_E_context_cat = torch.cat([h_E_context, Y_nodes], -1) # [B,L,M,2C]
         h_V_C = torch.utils.checkpoint.checkpoint(
@@ -208,6 +244,7 @@ class ProteinMPNN(torch.nn.Module):
         h_Y = torch.utils.checkpoint.checkpoint(
             self.y_context_encoder_layer_2, h_Y, Y_edges, Y_m, Y_m_edges, use_reentrant=True
         ) # ([B,L,M,C], [B,L,M,M,C]) --> [B,L,M,C]
+
         # protein-ligand graph: neighborhood ligand nodes --> update central residue nodes
         h_E_context_cat = torch.cat([h_E_context, h_Y], -1) # [B,L,M,2C]
         h_V_C = torch.utils.checkpoint.checkpoint(
@@ -217,7 +254,7 @@ class ProteinMPNN(torch.nn.Module):
         h_V_C = self.V_C_2(h_V_C) # [B,L,C]
         h_V = h_V + self.V_C_norm_2(self.dropout_2(h_V_C)) # [B,L,C]
 
-        return h_V, h_E, E_idx
+        return h_V
 
     def forward(self, feature_dict):
         # xyz_37 = feature_dict["xyz_37"] #[B,L,37,3] - xyz coordinates for all atoms if needed
@@ -226,20 +263,26 @@ class ProteinMPNN(torch.nn.Module):
         # Y_t = feature_dict["Y_t"] #[B,L,30] - element type
         # Y_m = feature_dict["Y_m"] #[B,L,30] - mask
         # X = feature_dict["X"] #[B,L,4,3] - backbone xyz coordinates for N,CA,C,O
-        S = feature_dict[
-            "S"
-        ]  # [B,L] - integer proitein sequence encoded using "restype_STRtoINT"
-        mask = feature_dict[
-            "mask"
-        ]  # [B,L] - mask for missing regions - should be removed! all ones most of the time
-        chain_mask = feature_dict[
-            "chain_mask"
-        ]  # [B,L] - mask for which residues need to be fixed; 0.0 - fixed; 1.0 - will be designed
+        S = feature_dict["S"] # [B,L] - integer proitein sequence encoded using "restype_STRtoINT"
+        mask = feature_dict["mask"] # [B,L] - mask for missing regions - should be removed! all ones most of the time
+        chain_mask = feature_dict["chain_mask"] # [B,L] - mask for which residues need to be fixed; 0.0 - fixed; 1.0 - will be designed
 
         B, L = S.shape
         device = S.device
 
-        h_V, h_E, E_idx = self._encode(feature_dict)
+        if self.model_type == "ligand_mpnn" or self.model_type == "ligand_mpnn_new":
+            E_context, E, E_idx, Y_nodes, Y_edges, Y_m = self.features(feature_dict)
+        else:
+            E, E_idx = self.features(feature_dict)
+        # V:[B,L,M,C] E:[B,L,K,C] E_idx:[B,L,K] Y_nodes:[B,L,M,C] Y_edges:[B,L,M,M,C] Y_m:[B,L,M]
+        
+        h_V, h_E = self.protein_encode(E, E_idx, mask)
+        if self.model_type == "ligand_mpnn":
+            h_V = self.ligand_encode(h_V, mask, E_context, Y_nodes, Y_edges, Y_m)
+        elif self.model_type == "ligand_mpnn_new":
+            nn_idx = feature_dict["nn_idx"]
+            Y_scale = feature_dict["Y_scale"]
+            h_V = self.ligand_encode_new(h_V, mask, E_context, Y_nodes, Y_edges, Y_m, nn_idx, Y_scale)
 
         chain_mask = mask * chain_mask  # update chain_M to include missing regions
         decoding_order = torch.argsort(
@@ -278,6 +321,124 @@ class ProteinMPNN(torch.nn.Module):
         log_probs = F.log_softmax(logits, dim=-1)
 
         return log_probs
+
+
+class ProteinFeatures(torch.nn.Module):
+    def __init__(
+        self,
+        edge_features,
+        node_features,
+        num_positional_embeddings=16,
+        num_rbf=16,
+        top_k=48,
+        augment_eps=0.0,
+    ):
+        """Extract protein features"""
+        super(ProteinFeatures, self).__init__()
+        self.edge_features = edge_features
+        self.node_features = node_features
+        self.top_k = top_k
+        self.augment_eps = augment_eps
+        self.num_rbf = num_rbf
+        self.num_positional_embeddings = num_positional_embeddings
+
+        self.embeddings = PositionalEncodings(num_positional_embeddings)
+        edge_in = num_positional_embeddings + num_rbf * 25
+        self.edge_embedding = torch.nn.Linear(edge_in, edge_features, bias=False)
+        self.norm_edges = torch.nn.LayerNorm(edge_features)
+
+    def _dist(self, X, mask, eps=1e-6):
+        mask_2D = torch.unsqueeze(mask, 1) * torch.unsqueeze(mask, 2)
+        dX = torch.unsqueeze(X, 1) - torch.unsqueeze(X, 2)
+        D = mask_2D * torch.sqrt(torch.sum(dX**2, 3) + eps)
+        D_max, _ = torch.max(D, -1, keepdim=True)
+        D_adjust = D + (1.0 - mask_2D) * D_max
+        D_neighbors, E_idx = torch.topk(
+            D_adjust, np.minimum(self.top_k, X.shape[1]), dim=-1, largest=False
+        )
+        return D_neighbors, E_idx
+
+    def _rbf(self, D):
+        device = D.device
+        D_min, D_max, D_count = 2.0, 22.0, self.num_rbf
+        D_mu = torch.linspace(D_min, D_max, D_count, device=device)
+        D_mu = D_mu.view([1, 1, 1, -1])
+        D_sigma = (D_max - D_min) / D_count
+        D_expand = torch.unsqueeze(D, -1)
+        RBF = torch.exp(-(((D_expand - D_mu) / D_sigma) ** 2))
+        return RBF
+
+    def _get_rbf(self, A, B, E_idx):
+        D_A_B = torch.sqrt(
+            torch.sum((A[:, :, None, :] - B[:, None, :, :]) ** 2, -1) + 1e-6
+        )  # [B, L, L]
+        D_A_B_neighbors = gather_edges(D_A_B[:, :, :, None], E_idx)[
+            :, :, :, 0
+        ]  # [B,L,K]
+        RBF_A_B = self._rbf(D_A_B_neighbors)
+        return RBF_A_B
+
+    def forward(self, input_features):
+        X = input_features["X"]
+        mask = input_features["mask"]
+        R_idx = input_features["R_idx"]
+        chain_labels = input_features["chain_labels"]
+
+        if self.augment_eps > 0:
+            X = X + self.augment_eps * torch.randn_like(X)
+
+        b = X[:, :, 1, :] - X[:, :, 0, :]
+        c = X[:, :, 2, :] - X[:, :, 1, :]
+        a = torch.cross(b, c, dim=-1)
+        Cb = -0.58273431 * a + 0.56802827 * b - 0.54067466 * c + X[:, :, 1, :]
+        Ca = X[:, :, 1, :]
+        N = X[:, :, 0, :]
+        C = X[:, :, 2, :]
+        O = X[:, :, 3, :]
+
+        D_neighbors, E_idx = self._dist(Ca, mask)
+
+        RBF_all = []
+        RBF_all.append(self._rbf(D_neighbors))  # Ca-Ca
+        RBF_all.append(self._get_rbf(N, N, E_idx))  # N-N
+        RBF_all.append(self._get_rbf(C, C, E_idx))  # C-C
+        RBF_all.append(self._get_rbf(O, O, E_idx))  # O-O
+        RBF_all.append(self._get_rbf(Cb, Cb, E_idx))  # Cb-Cb
+        RBF_all.append(self._get_rbf(Ca, N, E_idx))  # Ca-N
+        RBF_all.append(self._get_rbf(Ca, C, E_idx))  # Ca-C
+        RBF_all.append(self._get_rbf(Ca, O, E_idx))  # Ca-O
+        RBF_all.append(self._get_rbf(Ca, Cb, E_idx))  # Ca-Cb
+        RBF_all.append(self._get_rbf(N, C, E_idx))  # N-C
+        RBF_all.append(self._get_rbf(N, O, E_idx))  # N-O
+        RBF_all.append(self._get_rbf(N, Cb, E_idx))  # N-Cb
+        RBF_all.append(self._get_rbf(Cb, C, E_idx))  # Cb-C
+        RBF_all.append(self._get_rbf(Cb, O, E_idx))  # Cb-O
+        RBF_all.append(self._get_rbf(O, C, E_idx))  # O-C
+        RBF_all.append(self._get_rbf(N, Ca, E_idx))  # N-Ca
+        RBF_all.append(self._get_rbf(C, Ca, E_idx))  # C-Ca
+        RBF_all.append(self._get_rbf(O, Ca, E_idx))  # O-Ca
+        RBF_all.append(self._get_rbf(Cb, Ca, E_idx))  # Cb-Ca
+        RBF_all.append(self._get_rbf(C, N, E_idx))  # C-N
+        RBF_all.append(self._get_rbf(O, N, E_idx))  # O-N
+        RBF_all.append(self._get_rbf(Cb, N, E_idx))  # Cb-N
+        RBF_all.append(self._get_rbf(C, Cb, E_idx))  # C-Cb
+        RBF_all.append(self._get_rbf(O, Cb, E_idx))  # O-Cb
+        RBF_all.append(self._get_rbf(C, O, E_idx))  # C-O
+        RBF_all = torch.cat(tuple(RBF_all), dim=-1)
+
+        offset = R_idx[:, :, None] - R_idx[:, None, :]
+        offset = gather_edges(offset[:, :, :, None], E_idx)[:, :, :, 0]  # [B, L, K]
+
+        d_chains = (
+            (chain_labels[:, :, None] - chain_labels[:, None, :]) == 0
+        ).long()  # find self vs non-self interaction
+        E_chains = gather_edges(d_chains[:, :, :, None], E_idx)[:, :, :, 0]
+        E_positional = self.embeddings(offset.long(), E_chains)
+        E = torch.cat((E_positional, RBF_all), -1)
+        E = self.edge_embedding(E)
+        E = self.norm_edges(E)
+
+        return E, E_idx
 
 
 class ProteinFeaturesLigand(torch.nn.Module):
@@ -520,8 +681,8 @@ class ProteinFeaturesLigand(torch.nn.Module):
         D_all = torch.cat(
             (D_N_Y, D_Ca_Y, D_C_Y, D_O_Y, D_Cb_Y, Y_t_1hot, f_angles), dim=-1
         )  # [B,L,M,5*num_bins+5]
-        V = self.node_project_down(D_all)  # [B, L, M, node_features]
-        V = self.norm_nodes(V)
+        E_context = self.node_project_down(D_all)  # [B, L, M, node_features]
+        E_context = self.norm_nodes(E_context)
 
         Y_edges = self._rbf(
             torch.sqrt(
@@ -535,7 +696,7 @@ class ProteinFeaturesLigand(torch.nn.Module):
         Y_edges = self.norm_y_edges(Y_edges)
         Y_nodes = self.norm_y_nodes(Y_nodes)
 
-        return V, E, E_idx, Y_nodes, Y_edges, Y_m
+        return E_context, E, E_idx, Y_nodes, Y_edges, Y_m
 
 
 class PositionalEncodings(torch.nn.Module):
