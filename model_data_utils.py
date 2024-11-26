@@ -120,8 +120,8 @@ def batch_featurize(
     device,
     cutoff_for_score=8.0,
     use_atom_context=True,
-    number_of_ligand_atoms=30,
-    model_type="ligand_mpnn",
+    number_of_ligand_atoms=25,
+    model_type="ligand_mpnn"
 ):
     # alphabet = "ACDEFGHIKLMNPQRSTVWYX"
     B = len(batch)
@@ -144,7 +144,7 @@ def batch_featurize(
     nn_idx_batch = torch.zeros([B, L_max, number_of_ligand_atoms], dtype=torch.long, device=device) #[B,L,M]
     # Y_scale_batch = torch.ones([B, l_ligand_max], dtype=torch.int32, device=device) #[B,l] - Y_scale at least is 1
     Y_scale_squeezed_list = list()
-    mask_XY_batch = torch.zeros([B, L_max], dtype=torch.int32, device=device) #[B,L]
+    # mask_XY_batch = torch.zeros([B, L_max], dtype=torch.int32, device=device) #[B,L]
     chain_labels_batch = torch.zeros([B, L_max], dtype=torch.long, device=device) #[B,L] - integer labels for chain letters
     chain_mask_batch = torch.zeros([B, L_max], dtype=torch.long, device=device) #[B,L]
 
@@ -178,10 +178,10 @@ def batch_featurize(
         Y_nbh = gather_context_atom_features(Y, nn_idx)
         Y_t_nbh = gather_context_atoms(Y_t, nn_idx)
         Y_m_nbh = gather_context_atoms(Y_m, nn_idx)
-        L2_AB_nn = torch.gather(L2_AB, 1, nn_idx) # [L, M]
-        D_XY = torch.sqrt(L2_AB_nn[:, 0]) # D_AB_closest [L]
-        mask_XY = (D_XY < cutoff_for_score) * mask * Y_m_nbh[:, 0] # [L], residues have context atoms or not
-        mask_XY_batch[i_pdb,:] = F.pad(mask_XY, (0, pad_n_residues), mode="constant", value=0)
+        # L2_AB_nn = torch.gather(L2_AB, 1, nn_idx) # [L, M]
+        # D_XY = torch.sqrt(L2_AB_nn[:, 0]) # D_AB_closest [L]
+        # mask_XY = (D_XY < cutoff_for_score) * mask * Y_m_nbh[:, 0] # [L], residues have context atoms or not
+        # mask_XY_batch[i_pdb,:] = F.pad(mask_XY, (0, pad_n_residues), mode="constant", value=0)
         Y_mask_scattered = torch.zeros([l, l_ligand], dtype=torch.int32, device=device) # [L, l]
         Y_scale_unsqueezed = torch.sum(Y_mask_scattered.scatter_(
             1, nn_idx, torch.ones_like(nn_idx, dtype=torch.int32, device=device)
@@ -261,7 +261,7 @@ def batch_featurize(
     feature_dict["mask"] = mask_batch # [B,L] - mask for missing regions - should be removed! all ones most of the time
     feature_dict["nn_idx"] = nn_idx_batch #[B,L,M]
     feature_dict["Y_scale"] = Y_scale_batch #[B,l]
-    feature_dict["mask_XY"] = mask_XY_batch #[B,L]
+    # feature_dict["mask_XY"] = mask_XY_batch #[B,L]
     feature_dict["chain_labels"] = chain_labels_batch #[B,L] - integer labels for chain letters
     feature_dict["chain_mask"] = chain_mask_batch #[B,L]
     return feature_dict
