@@ -75,6 +75,13 @@ def main(args):
     if PATH:
         optimizer.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
+    if args.model_type == "protein_mpnn":
+        use_atom_context = False
+        atom_context_num = 1
+    elif args.model_type.startswith("ligand_mpnn"):
+        use_atom_context = True
+        atom_context_num = args.atom_context_num
+
     torch.multiprocessing.set_start_method('spawn')
     with ProcessPoolExecutor(max_workers=args.cpus_per_task) as executor:
         q = queue.Queue(maxsize=3)
@@ -101,7 +108,8 @@ def main(args):
 
             for batch in train_batch_list:
                 start_batch = time.time()
-                batch_feature_dict = batch_featurize(batch, device)
+                batch_feature_dict = batch_featurize(batch, device, \
+                        use_atom_context=use_atom_context, number_of_ligand_atoms=atom_context_num)
                 elapsed_featurize = time.time() - start_batch
                 optimizer.zero_grad()
                 S = batch_feature_dict["S"]
@@ -143,7 +151,8 @@ def main(args):
                 validation_sum, validation_weights = 0., 0.
                 validation_acc = 0.
                 for batch in valid_batch_list:
-                    batch_feature_dict = batch_featurize(batch, device)
+                    batch_feature_dict = batch_featurize(batch, device, \
+                            use_atom_context=use_atom_context, number_of_ligand_atoms=atom_context_num)
                     log_probs = model(batch_feature_dict)
                     S = batch_feature_dict["S"]
                     mask_for_loss = batch_feature_dict["mask"]
@@ -211,9 +220,9 @@ if __name__ == "__main__":
     argparser.add_argument("--hidden_dim", type=int, default=128, help="hidden model dimension")
     argparser.add_argument("--num_encoder_layers", type=int, default=3, help="number of encoder layers")
     argparser.add_argument("--num_decoder_layers", type=int, default=3, help="number of decoder layers")
-    argparser.add_argument("--num_neighbors", type=int, default=48, help="number of neighbors for the sparse graph")
+    argparser.add_argument("--num_neighbors", type=int, default=32, help="number of neighbors for the sparse graph")
     argparser.add_argument("--model_type", type=str, choices=["protein_mpnn", "ligand_mpnn", "ligand_mpnn_new"], default="ligand_mpnn_new", help="model type")
-    argparser.add_argument("--atom_context_num", type=int, default=30, help="number of context atom neighbors for the sparse graph")
+    argparser.add_argument("--atom_context_num", type=int, default=25, help="number of context atom neighbors for the sparse graph")
     argparser.add_argument("--dropout", type=float, default=0.1, help="dropout level; 0.0 means no dropout")
     argparser.add_argument("--backbone_noise", type=float, default=0.2, help="amount of noise added to backbone during training")
     # argparser.add_argument("--rescut", type=float, default=3.5, help="PDB resolution cutoff")
