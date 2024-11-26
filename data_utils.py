@@ -1,6 +1,5 @@
 import numpy as np
 import torch
-import torch.utils
 from prody import *
 
 
@@ -260,7 +259,7 @@ def get_aligned_coordinates(protein_atoms, CA_dict: dict, atom_name: str):
 
 def parse_PDB(
     input_path: str,
-    device: str = "cuda",
+    device: str = "cpu",
     chains: list = list(),
     parse_all_atoms: bool = False,
     parse_atoms_with_zero_occupancy: bool = False
