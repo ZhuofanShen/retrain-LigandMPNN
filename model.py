@@ -32,7 +32,7 @@ def cat_neighbors_nodes(h_nodes, h_neighbors, E_idx):
     h_nn = torch.cat([h_neighbors, h_nodes], -1)
     return h_nn
 
-def gather_context_atom_features_batch(Y, nn_idx):
+def gather_context_atom_features(Y, nn_idx):
     # Y [B, l, C] at Neighbor indices [B, L, M] => Y [B, L, M, C]
     Y_r = Y[:, None, :, :].repeat(1, nn_idx.shape[1], 1, 1) # [B, L, l, C]
     Y_tmp = torch.gather(Y_r, 2, nn_idx[:, :, :, None].repeat(1, 1, 1, Y.shape[-1]))
@@ -76,12 +76,12 @@ class ProteinMPNN(torch.nn.Module):
         num_encoder_layers=3,
         num_decoder_layers=3,
         vocab=21,
-        k_neighbors=48,
+        k_neighbors=32,
         augment_eps=0.0,
         dropout=0.0,
         device=None,
-        atom_context_num=0,
-        model_type="protein_mpnn",
+        atom_context_num=25,
+        model_type="ligand_mpnn",
         ligand_mpnn_use_side_chain_context=False,
     ):
         super(ProteinMPNN, self).__init__()
@@ -186,7 +186,7 @@ class ProteinMPNN(torch.nn.Module):
             ) # ([B,L,C], [B,L,K,C]) --> ([B,L,C], [B,L,K,C])
         return h_V, h_E
 
-    def ligand_encode(self, h_V, mask, E_context, Y_nodes, Y_edges, Y_m):
+    def protein_ligand_encode(self, h_V, mask, E_context, Y_nodes, Y_edges, Y_m):
         h_V_C = self.W_c(h_V) #[B,L,C]
         h_E_context = self.W_v(E_context) #[B,L,M,C], protein-ligand edges
         Y_nodes = self.W_nodes_y(Y_nodes) #[B,L,M,C]
@@ -213,7 +213,7 @@ class ProteinMPNN(torch.nn.Module):
 
         return h_V
 
-    def ligand_encode_new(self, h_V, mask, E_context, Y_nodes, Y_edges, Y_m, nn_idx, Y_scale):
+    def protein_ligand_encode_new(self, h_V, mask, E_context, Y_nodes, Y_edges, Y_m, nn_idx, Y_scale):
         h_V_C = self.W_c(h_V) #[B,L,C]
         h_E_context = self.W_v(E_context) #[B,L,M,C], protein-ligand edges
         Y_nodes = self.W_nodes_y(Y_nodes) #[B,L,M,C]
@@ -259,9 +259,9 @@ class ProteinMPNN(torch.nn.Module):
     def forward(self, feature_dict):
         # xyz_37 = feature_dict["xyz_37"] #[B,L,37,3] - xyz coordinates for all atoms if needed
         # xyz_37_m = feature_dict["xyz_37_m"] #[B,L,37] - mask for all coords
-        # Y = feature_dict["Y"] #[B,L,30,3] - for ligandMPNN coords
-        # Y_t = feature_dict["Y_t"] #[B,L,30] - element type
-        # Y_m = feature_dict["Y_m"] #[B,L,30] - mask
+        # Y = feature_dict["Y"] #[B,L,25,3] - for ligandMPNN coords
+        # Y_t = feature_dict["Y_t"] #[B,L,25] - element type
+        # Y_m = feature_dict["Y_m"] #[B,L,25] - mask
         # X = feature_dict["X"] #[B,L,4,3] - backbone xyz coordinates for N,CA,C,O
         S = feature_dict["S"] # [B,L] - integer proitein sequence encoded using "restype_STRtoINT"
         mask = feature_dict["mask"] # [B,L] - mask for missing regions - should be removed! all ones most of the time
@@ -278,11 +278,11 @@ class ProteinMPNN(torch.nn.Module):
         
         h_V, h_E = self.protein_encode(E, E_idx, mask)
         if self.model_type == "ligand_mpnn":
-            h_V = self.ligand_encode(h_V, mask, E_context, Y_nodes, Y_edges, Y_m)
+            h_V = self.protein_ligand_encode(h_V, mask, E_context, Y_nodes, Y_edges, Y_m)
         elif self.model_type == "ligand_mpnn_new":
             nn_idx = feature_dict["nn_idx"]
             Y_scale = feature_dict["Y_scale"]
-            h_V = self.ligand_encode_new(h_V, mask, E_context, Y_nodes, Y_edges, Y_m, nn_idx, Y_scale)
+            h_V = self.protein_ligand_encode_new(h_V, mask, E_context, Y_nodes, Y_edges, Y_m, nn_idx, Y_scale)
 
         chain_mask = mask * chain_mask  # update chain_M to include missing regions
         decoding_order = torch.argsort(
@@ -448,10 +448,10 @@ class ProteinFeaturesLigand(torch.nn.Module):
         node_features,
         num_positional_embeddings=16,
         num_rbf=16,
-        top_k=30,
+        top_k=32,
         augment_eps=0.0,
         device=None,
-        atom_context_num=16,
+        atom_context_num=25,
         use_side_chains=False,
     ):
         """Extract protein features"""
@@ -548,9 +548,9 @@ class ProteinFeaturesLigand(torch.nn.Module):
         return RBF_A_B
 
     def forward(self, input_features):
-        Y = input_features["Y"] # [B, L, 30, 3]
-        Y_m = input_features["Y_m"] # [B, L, 30]
-        Y_t = input_features["Y_t"] # [B, L, 30]
+        Y = input_features["Y"] # [B, L, 25, 3]
+        Y_m = input_features["Y_m"] # [B, L, 25]
+        Y_t = input_features["Y_t"] # [B, L, 25]
         X = input_features["X"]
         mask = input_features["mask"]
         R_idx = input_features["R_idx"]
@@ -858,7 +858,7 @@ class Protein2LigandLayer(torch.nn.Module):
         h_message_scattered.scatter_(2, nn_idx[:, :, :, None].repeat(1, 1, 1, h_message.shape[3]), h_message)
         dh = torch.div(torch.sum(h_message_scattered, dim=1), 
                        Y_scale[:,:,None].repeat(1,1,h_message_scattered.shape[-1])) # [B,l,C]
-        dh = gather_context_atom_features_batch(dh, nn_idx) # [B,L,M,C]
+        dh = gather_context_atom_features(dh, nn_idx) # [B,L,M,C]
 
         # update neighborhood ligand nodes
         h_Y = self.norm1(Y_nodes + self.dropout1(dh))
