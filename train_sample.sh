@@ -12,10 +12,13 @@
 #SBATCH --begin=now
 #SBATCH --open-mode=append
 
+ulimit -n 65535
 python ./train.py \
+       --num_neighbors 32 \
+       --atom_context_num 25 \
        --model_type "ligand_mpnn_new" \
        --cpus_per_task 12 \
        --path_for_outputs "./exp_020" \
        --path_for_training_data "sample" \
-       --num_examples_per_epoch 10 \
+       --num_examples_per_epoch 100 \
        --save_model_every_n_epochs 50
