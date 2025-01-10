@@ -52,7 +52,7 @@ def main(args):
                         edge_features=args.hidden_dim,
                         hidden_dim=args.hidden_dim,
                         num_encoder_layers=args.num_encoder_layers,
-                        num_decoder_layers=args.num_encoder_layers,
+                        num_decoder_layers=args.num_decoder_layers,
                         k_neighbors=args.num_neighbors,
                         augment_eps=args.backbone_noise,
                         dropout=args.dropout,
