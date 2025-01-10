@@ -260,9 +260,10 @@ def get_aligned_coordinates(protein_atoms, CA_dict: dict, atom_name: str):
 def parse_PDB(
     input_path: str,
     device: str = "cpu",
-    chains: list = list(),
+    chains: list = None,
     parse_all_atoms: bool = False,
-    parse_atoms_with_zero_occupancy: bool = False
+    parse_atoms_with_zero_occupancy: bool = False,
+    trim_his_tag: bool = False
 ):
     """
     input_path : path for the input PDB
@@ -279,7 +280,7 @@ def parse_PDB(
     atoms = parsePDB(input_path)
     if not parse_atoms_with_zero_occupancy:
         atoms = atoms.select("occupancy > 0")
-    if chains:
+    if chains and len(chains) > 0:
         str_out = ""
         for item in chains:
             str_out += " chain " + item + " or"
@@ -287,8 +288,11 @@ def parse_PDB(
 
     protein_atoms = atoms.select("protein")
     # backbone = protein_atoms.select("backbone")
-    other_atoms = atoms.select("not protein and not water")
+    # other_atoms = atoms.select("not protein and not water")
     # water_atoms = atoms.select("water")
+
+    if protein_atoms is None:
+        return None
 
     CA_atoms = protein_atoms.select("name CA")
     CA_resnums = CA_atoms.getResnums()
@@ -319,49 +323,113 @@ def parse_PDB(
 
     mask = N_m * CA_m * C_m * O_m  # must all 4 atoms exist
 
-    b = CA - N
-    c = C - CA
-    a = np.cross(b, c, axis=-1)
-    CB = -0.58273431 * a + 0.56802827 * b - 0.54067466 * c + CA
+    # b = CA - N
+    # c = C - CA
+    # a = np.cross(b, c, axis=-1)
+    # CB = -0.58273431 * a + 0.56802827 * b - 0.54067466 * c + CA
 
     chain_labels = np.array(CA_atoms.getChindices(), dtype=np.int32)
     R_idx = np.array(CA_resnums, dtype=np.int32)
-    S = CA_atoms.getResnames()
-    S = [restype_3to1[AA] if AA in list(restype_3to1) else "X" for AA in list(S)]
-    S = np.array(["ACDEFGHIKLMNPQRSTVWYX".find(AA) for AA in list(S)], np.int32) # restype_STRtoINT[AA]
+    seq = CA_atoms.getResnames()
+    seq = [restype_3to1[AA] if AA in list(restype_3to1) else "X" for AA in list(seq)]
+    S = np.array(["ACDEFGHIKLMNPQRSTVWYX".find(AA) for AA in seq], np.int32) # restype_STRtoINT[AA]
     X = np.concatenate([N[:, None], CA[:, None], C[:, None], O[:, None]], 1)
 
-    try:
-        Y = np.array(other_atoms.getCoords(), dtype=np.float32)
-        Y_t = list(other_atoms.getElements())
-        Y_t = np.array(
-            [
-                element_dict[y_t.upper()] if y_t.upper() in element_list else 0
-                for y_t in Y_t
-            ],
-            dtype=np.int32,
-        )
-        Y_m = (Y_t != 1) * (Y_t != 0)
+    if trim_his_tag:
+        his_tag_ranges = [0]
+        seq = "".join(seq)
+        chain_label = -1
+        for i, chain_label_i in enumerate(chain_labels):
+            if chain_label_i != chain_label:
+                chain_label = chain_label_i
+                if i > 0:
+                    if seq[i-10:i-4] == "HHHHHH":
+                        his_tag_ranges.extend([i-10, i])
+                    elif seq[i-9:i-3] == "HHHHHH":
+                        his_tag_ranges.extend([i-9, i])
+                    elif seq[i-8:i-2] == "HHHHHH":
+                        his_tag_ranges.extend([i-8, i])
+                    elif seq[i-7:i-1] == "HHHHHH":
+                        his_tag_ranges.extend([i-7, i])
+                    elif seq[i-6:i] == "HHHHHH":
+                        his_tag_ranges.extend([i-6, i])
+                if seq[i+4:i+10] == "HHHHHH":
+                    his_tag_ranges.extend([i, i+10])
+                elif seq[i+3:i+9] == "HHHHHH":
+                    his_tag_ranges.extend([i, i+9])
+                elif seq[i+2:i+8] == "HHHHHH":
+                    his_tag_ranges.extend([i, i+8])
+                elif seq[i+1:i+7] == "HHHHHH":
+                    his_tag_ranges.extend([i, i+7])
+                elif seq[i:i+6] == "HHHHHH":
+                    his_tag_ranges.extend([i, i+6])
+        if seq[i-9:i-3] == "HHHHHH":
+            his_tag_ranges.extend([i-9, i+1])
+        elif seq[i-8:i-2] == "HHHHHH":
+            his_tag_ranges.extend([i-8, i+1])
+        elif seq[i-7:i-1] == "HHHHHH":
+            his_tag_ranges.extend([i-7, i+1])
+        elif seq[i-6:i] == "HHHHHH":
+            his_tag_ranges.extend([i-6, i+1])
+        elif seq[i-5:i+1] == "HHHHHH":
+            his_tag_ranges.extend([i-5, i+1])
+        his_tag_ranges.append(i+1)
+        X_list = list()
+        mask_list = list()
+        R_idx_list = list()
+        chain_labels_list = list()
+        S_list = list()
+        xyz_37_list = list()
+        xyz_37_m_list = list()
+        for i in range(0, len(his_tag_ranges), 2):
+            start_index = his_tag_ranges[i]
+            end_index = his_tag_ranges[i+1]
+            if start_index != end_index:
+                X_list.append(X[start_index:end_index, :, :])
+                mask_list.append(mask[start_index:end_index])
+                R_idx_list.append(R_idx[start_index:end_index])
+                chain_labels_list.append(chain_labels[start_index:end_index])
+                S_list.append(S[start_index:end_index])
+                xyz_37_list.append(xyz_37[start_index:end_index, :, :])
+                xyz_37_m_list.append(xyz_37_m[start_index:end_index, :])
+        X = np.concatenate(X_list, 0)
+        mask = np.concatenate(mask_list, 0)
+        R_idx = np.concatenate(R_idx_list, 0)
+        chain_labels = np.concatenate(chain_labels_list, 0)
+        S = np.concatenate(S_list, 0)
+        xyz_37 = np.concatenate(xyz_37_list, 0)
+        xyz_37_m = np.concatenate(xyz_37_m_list, 0)
 
-        Y = Y[Y_m, :]
-        Y_t = Y_t[Y_m]
-        Y_m = Y_m[Y_m]
-    except:
-        print("Error loading ligand atoms when parsing " + input_path)
-        Y = np.zeros([1, 3], np.float32)
-        Y_t = np.zeros([1], np.int32)
-        Y_m = np.zeros([1], np.int32)
+    Y = list()
+    Y_t = list()
+    for line in open(input_path, "r"):
+        if ((line.startswith("ATOM  ") or line.startswith("HETATM")) and \
+                not line[17:20] in ["ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "ILE", \
+                                    "LEU", "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL", \
+                                    "UNK", "MSE", "PTR", "CYX", "HID", "HIE", "HIP", \
+                                    "EOH", "EDO", "GOL", "PEG", "PG4", "PG5", "1PE", "PG6", \
+                                    "FMT", "ACT", " CL", "SO4", "PO4", "WAT", "HOH"] \
+                or line.startswith("HETATM") and line[17:20] == "UNK") \
+                and len(line) >= 78:
+            if chains and line[20:22].strip() not in chains:
+                continue
+            atom_type = line.rstrip()[-4:].strip().upper()
+            if atom_type.endswith("+") or atom_type.endswith("-"):
+                atom_type = atom_type[:-2]
+            atom_type = element_dict[atom_type]
+            if atom_type == 1:
+                continue
+            Y.append([float(line[30:38]), float(line[38:46]), float(line[46:54])])
+            Y_t.append(atom_type)
+    Y = np.array(Y, dtype=np.float32)
+    Y_t = np.array(Y_t, dtype=np.int32)
+    Y_m = (Y_t != 1) * (Y_t != 0)
 
     output_dict = dict()
     output_dict["X"] = torch.tensor(X, device=device, dtype=torch.float32)
     output_dict["mask"] = torch.tensor(mask, device=device, dtype=torch.int32)
-    output_dict["Y"] = torch.tensor(Y, device=device, dtype=torch.float32)
-    output_dict["Y_t"] = torch.tensor(Y_t, device=device, dtype=torch.int32)
-    output_dict["Y_m"] = torch.tensor(Y_m, device=device, dtype=torch.int32)
     output_dict["R_idx"] = torch.tensor(R_idx, device=device, dtype=torch.int32)
-    output_dict["chain_labels"] = torch.tensor(
-        chain_labels, device=device, dtype=torch.int32
-    )
+    output_dict["chain_labels"] = torch.tensor(chain_labels, device=device, dtype=torch.int32)
 
     # output_dict["chain_letters"] = CA_chain_ids
 
@@ -383,5 +451,9 @@ def parse_PDB(
     output_dict["S"] = torch.tensor(S, device=device, dtype=torch.int32)
     output_dict["xyz_37"] = torch.tensor(xyz_37, device=device, dtype=torch.float32)
     output_dict["xyz_37_m"] = torch.tensor(xyz_37_m, device=device, dtype=torch.int32)
+
+    output_dict["Y"] = torch.tensor(Y, device=device, dtype=torch.float32)
+    output_dict["Y_t"] = torch.tensor(Y_t, device=device, dtype=torch.int32)
+    output_dict["Y_m"] = torch.tensor(Y_m, device=device, dtype=torch.int32)
 
     return output_dict
