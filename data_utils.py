@@ -421,6 +421,7 @@ def parse_PDB(
                 continue
             Y.append([float(line[30:38]), float(line[38:46]), float(line[46:54])])
             Y_t.append(atom_type)
+    assert len(Y) == len(Y_t)
     Y = np.array(Y, dtype=np.float32)
     Y_t = np.array(Y_t, dtype=np.int32)
     Y_m = (Y_t != 1) * (Y_t != 0)
