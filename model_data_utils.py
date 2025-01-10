@@ -172,8 +172,14 @@ def batch_featurize(
         a = torch.cross(b, c, axis=-1)
         CB = -0.58273431 * a + 0.56802827 * b - 0.54067466 * c + CA # [L, 3]
         mask_CBY = mask[:, None] * Y_m[None, :] # [L, M]
-        L2_AB = torch.sum((CB[:, None, :] - Y[None, :, :]) ** 2, -1) # [L, M]
-        L2_AB = L2_AB * mask_CBY + (1 - mask_CBY) * 1000.0 # [L, M]
+        try:
+            Y[None, :, :]
+        except:
+            Y = torch.zeros([1, 3], dtype=torch.float32, device=device)
+            Y_t = torch.zeros([1], dtype=torch.int32, device=device)
+            Y_m = torch.zeros([1], dtype=torch.int32, device=device)
+        L2_AB = torch.sum((CB[:, None, :] - Y[None, :, :]) ** 2, -1) # [L, l]
+        L2_AB = L2_AB * mask_CBY + (1 - mask_CBY) * 1000.0 # [L, l]
         nn_idx = torch.argsort(L2_AB, -1)[:, :number_of_ligand_atoms] # [L, M], nn means nearest neighbor
         Y_nbh = gather_context_atom_features(Y, nn_idx)
         Y_t_nbh = gather_context_atoms(Y_t, nn_idx)
