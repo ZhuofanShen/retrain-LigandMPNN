@@ -255,7 +255,7 @@ class ProteinMPNN(nn.Module):
         return h_V
 
     def decode(self, S, h_V, h_E, E_idx, decode_mask, mask):
-        mask_1D = mask.view([h_S.shape[0], h_S.shape[1], 1, 1])
+        mask_1D = mask.view([S.shape[0], S.shape[1], 1, 1])
         mask_bw = mask_1D * decode_mask
         mask_fw = mask_1D * (1.0 - decode_mask)
 
