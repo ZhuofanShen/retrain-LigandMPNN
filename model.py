@@ -304,7 +304,8 @@ class ProteinMPNN(nn.Module):
         elif self.model_type == "ligand_mpnn_new":
             nn_idx = feature_dict["nn_idx"]
             Y_scale = feature_dict["Y_scale"]
-            h_V = self.protein_ligand_bidirectional_encode(Y_nodes, Y_edges, Y_m, h_V, E_context, mask, nn_idx, Y_scale)
+            if Y_scale.shape[1] > 0:
+                h_V = self.protein_ligand_bidirectional_encode(Y_nodes, Y_edges, Y_m, h_V, E_context, mask, nn_idx, Y_scale)
 
         chain_mask = mask * chain_mask  # update chain_M to include missing regions
         # numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0
