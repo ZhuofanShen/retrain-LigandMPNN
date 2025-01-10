@@ -74,7 +74,7 @@ for pdb in pdb_list:
             with open(data_path + ".void_asmb.json", "a") as pf2:
                 pf2.write('"' + pdb + suffix + '", ')
             continue
-        if pdb_dict["Y_t"].shape[0] > 0:
+        if pdb_dict["Y"].shape[0] > 0:
             suffix = "_ligand"
         torch.save(pdb_dict, os.path.join(data_path, pdb + ".pt"))
     else:
@@ -92,7 +92,7 @@ for pdb in pdb_list:
                 with open(data_path + ".void_asmb.json", "a") as pf2:
                     pf2.write('"' + pdb + suffix + '", ')
                 continue
-            if pdb_dict["Y_t"].shape[0] > 0:
+            if pdb_dict["Y"].shape[0] > 0:
                 suffix += "_ligand"
             torch.save(pdb_dict, os.path.join(data_path, pdb + suffix + ".pt"))
 
