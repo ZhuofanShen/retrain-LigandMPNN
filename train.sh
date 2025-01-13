@@ -16,9 +16,9 @@ ulimit -n 65535
 python ./train.py \
        --num_neighbors 32 \
        --atom_context_num 25 \
-       --model_type "ligand_mpnn_new" \
+       --model_type "ligand_mpnn" \
        --cpus_per_task 12 \
        --path_for_outputs "./exp_020" \
-       --path_for_training_data "sample" \
-       --num_examples_per_epoch 100 \
+       --path_for_training_data "training" \
+       --num_examples_per_epoch 1000 \
        --save_model_every_n_epochs 50
