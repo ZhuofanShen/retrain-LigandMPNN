@@ -20,5 +20,4 @@ python ./train.py \
        --cpus_per_task 12 \
        --path_for_outputs "./exp_020" \
        --path_for_training_data "training" \
-       --num_examples_per_epoch 1000 \
        --save_model_every_n_epochs 50
