@@ -8,7 +8,7 @@ from torch.nn.utils import clip_grad_norm_
 from concurrent.futures import ProcessPoolExecutor
 import queue
 
-from model_data_utils import PDBDataset, load_pdb_pt, worker_init_fn, \
+from model_data_utils import PDBDataset, worker_init_fn, \
         get_pdbs, batch_featurize, get_std_opt, Batches
 from model import loss_smoothed, loss_nll, ProteinMPNN
 
@@ -40,12 +40,12 @@ def main(args):
 
     train_data_path = os.path.join(data_path, "train")
     train = list(filter(lambda x: x.endswith('.pt'), os.listdir(train_data_path)))
-    train_set = PDBDataset(train, train_data_path, load_pdb_pt)
+    train_set = PDBDataset(train, train_data_path)
     train_loader = DataLoader(train_set, worker_init_fn=worker_init_fn)
 
     valid_data_path = os.path.join(data_path, "valid")
     valid = list(filter(lambda x: x.endswith('.pt'), os.listdir(valid_data_path)))
-    valid_set = PDBDataset(valid, valid_data_path, load_pdb_pt)
+    valid_set = PDBDataset(valid, valid_data_path)
     valid_loader = DataLoader(valid_set, worker_init_fn=worker_init_fn)
 
     model = ProteinMPNN(node_features=args.hidden_dim,
@@ -109,7 +109,7 @@ def main(args):
             for batch in train_batch_list:
                 start_batch = time.time()
                 batch_feature_dict = batch_featurize(batch, device, \
-                        use_atom_context=use_atom_context, number_of_ligand_atoms=atom_context_num)
+                        use_atom_context=use_atom_context, n_nbh_ligand_atoms=atom_context_num)
                 elapsed_featurize = time.time() - start_batch
                 optimizer.zero_grad()
                 S = batch_feature_dict["S"]
@@ -152,7 +152,7 @@ def main(args):
                 validation_acc = 0.
                 for batch in valid_batch_list:
                     batch_feature_dict = batch_featurize(batch, device, \
-                            use_atom_context=use_atom_context, number_of_ligand_atoms=atom_context_num)
+                            use_atom_context=use_atom_context, n_nbh_ligand_atoms=atom_context_num)
                     log_probs = model(batch_feature_dict)
                     S = batch_feature_dict["S"]
                     mask_for_loss = batch_feature_dict["mask"]
@@ -230,5 +230,5 @@ if __name__ == "__main__":
     argparser.add_argument("--gradient_norm", type=float, default=-1.0, help="clip gradient norm, set to negative to omit clipping")
     argparser.add_argument("--mixed_precision", type=bool, default=True, help="train with mixed precision")
 
-    args = argparser.parse_args()    
+    args = argparser.parse_args()
     main(args)
