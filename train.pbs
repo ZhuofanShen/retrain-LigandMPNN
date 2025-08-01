@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --clusters=amarel
 #SBATCH --partition=gpu
-#SBATCH --job-name=train
+#SBATCH --job-name=LigandMPNN_training
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task 12
 #SBATCH --mem=128g
@@ -21,6 +21,6 @@ python ./train.py \
        --cpus_per_task 12 \
        --num_epochs 200 \
        --num_examples_per_epoch 1000000 \
-       --save_model_every_n_epochs 10 \
+       --save_model_every_n_epochs 5 \
        --path_for_outputs "./model_checkpoints" \
-       --path_for_training_data "training" 
+       --path_for_training_data "./data" 
