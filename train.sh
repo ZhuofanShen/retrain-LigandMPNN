@@ -1,4 +1,5 @@
 #!/bin/bash
+#SBATCH --clusters=amarel
 #SBATCH --partition=gpu
 #SBATCH --job-name=train
 #SBATCH --gres=gpu:1
@@ -14,10 +15,12 @@
 
 ulimit -n 65535
 python ./train.py \
+       --model_type "ligand_mpnn" \
        --num_neighbors 32 \
        --atom_context_num 25 \
-       --model_type "ligand_mpnn" \
        --cpus_per_task 12 \
-       --path_for_outputs "./exp_020" \
-       --path_for_training_data "training" \
-       --save_model_every_n_epochs 50
+       --num_epochs 200 \
+       --num_examples_per_epoch 1000000 \
+       --save_model_every_n_epochs 10 \
+       --path_for_outputs "./model_checkpoints" \
+       --path_for_training_data "training" 
