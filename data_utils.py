@@ -127,6 +127,78 @@ element_list = [
 ]
 element_list = [item.upper() for item in element_list]
 element_dict = dict(zip(element_list, range(1, len(element_list))))
+element_dict_rev = dict(zip(range(1, len(element_list)), element_list))
+
+restype_1to3 = {
+    "A": "ALA",
+    "R": "ARG",
+    "N": "ASN",
+    "D": "ASP",
+    "C": "CYS",
+    "Q": "GLN",
+    "E": "GLU",
+    "G": "GLY",
+    "H": "HIS",
+    "I": "ILE",
+    "L": "LEU",
+    "K": "LYS",
+    "M": "MET",
+    "F": "PHE",
+    "P": "PRO",
+    "S": "SER",
+    "T": "THR",
+    "W": "TRP",
+    "Y": "TYR",
+    "V": "VAL",
+    "X": "UNK",
+}
+restype_str_to_int = {
+    "A": 0,
+    "C": 1,
+    "D": 2,
+    "E": 3,
+    "F": 4,
+    "G": 5,
+    "H": 6,
+    "I": 7,
+    "K": 8,
+    "L": 9,
+    "M": 10,
+    "N": 11,
+    "P": 12,
+    "Q": 13,
+    "R": 14,
+    "S": 15,
+    "T": 16,
+    "V": 17,
+    "W": 18,
+    "Y": 19,
+    "X": 20,
+}
+restype_int_to_str = {
+    0: "A",
+    1: "C",
+    2: "D",
+    3: "E",
+    4: "F",
+    5: "G",
+    6: "H",
+    7: "I",
+    8: "K",
+    9: "L",
+    10: "M",
+    11: "N",
+    12: "P",
+    13: "Q",
+    14: "R",
+    15: "S",
+    16: "T",
+    17: "V",
+    18: "W",
+    19: "Y",
+    20: "X",
+}
+alphabet = list(restype_str_to_int)
 
 restype_3to1 = {
     "ALA": "A",
@@ -232,6 +304,687 @@ atom_types_all = [
     "NZ",
 ]
 
+side_chain_atom_types = [
+    6,
+    6,
+    6,
+    8,
+    8,
+    16,
+    6,
+    6,
+    6,
+    7,
+    7,
+    8,
+    8,
+    16,
+    6,
+    6,
+    6,
+    6,
+    7,
+    7,
+    7,
+    8,
+    8,
+    6,
+    7,
+    7,
+    8,
+    6,
+    6,
+    6,
+    7,
+    8,
+]
+
+periodic_table_features = [
+    [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76,
+        77,
+        78,
+        79,
+        80,
+        81,
+        82,
+        83,
+        84,
+        85,
+        86,
+        87,
+        88,
+        89,
+        90,
+        91,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98,
+        99,
+        100,
+        101,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+        108,
+        109,
+        110,
+        111,
+        112,
+        113,
+        114,
+        115,
+        116,
+        117,
+        118,
+    ],
+    [
+        0,
+        1,
+        18,
+        1,
+        2,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        1,
+        2,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        1,
+        2,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        1,
+        2,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+    ],
+    [
+        0,
+        1,
+        1,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+    ],
+]
+
+def get_seq_rec(S: torch.Tensor, S_pred: torch.Tensor, mask: torch.Tensor):
+    """
+    S : true sequence shape=[batch, length]
+    S_pred : predicted sequence shape=[batch, length]
+    mask : mask to compute average over the region shape=[batch, length]
+
+    average : averaged sequence recovery shape=[batch]
+    """
+    match = S == S_pred
+    average = torch.sum(match * mask, dim=-1) / torch.sum(mask, dim=-1)
+    return average
+
+
+def get_score(S: torch.Tensor, log_probs: torch.Tensor, mask: torch.Tensor):
+    """
+    S : true sequence shape=[batch, length]
+    log_probs : predicted sequence shape=[batch, length]
+    mask : mask to compute average over the region shape=[batch, length]
+
+    average_loss : averaged categorical cross entropy (CCE) [batch]
+    loss_per_resdue : per position CCE [batch, length]
+    """
+    S_one_hot = torch.nn.functional.one_hot(S, 21)
+    loss_per_residue = -(S_one_hot * log_probs).sum(-1)  # [B, L]
+    average_loss = torch.sum(loss_per_residue * mask, dim=-1) / (
+        torch.sum(mask, dim=-1) + 1e-8
+    )
+    return average_loss, loss_per_residue
+
+def write_full_PDB(
+    save_path: str,
+    X: np.ndarray,
+    X_m: np.ndarray,
+    b_factors: np.ndarray,
+    R_idx: np.ndarray,
+    chain_letters: np.ndarray,
+    S: np.ndarray,
+    other_atoms=None,
+    icodes=None,
+    force_hetatm=False,
+):
+    """
+    save_path : path where the PDB will be written to
+    X : protein atom xyz coordinates shape=[length, 14, 3]
+    X_m : protein atom mask shape=[length, 14]
+    b_factors: shape=[length, 14]
+    R_idx: protein residue indices shape=[length]
+    chain_letters: protein chain letters shape=[length]
+    S : protein amino acid sequence shape=[length]
+    other_atoms: other atoms parsed by prody
+    icodes: a list of insertion codes for the PDB; e.g. antibody loops
+    """
+
+    restype_1to3 = {
+        "A": "ALA",
+        "R": "ARG",
+        "N": "ASN",
+        "D": "ASP",
+        "C": "CYS",
+        "Q": "GLN",
+        "E": "GLU",
+        "G": "GLY",
+        "H": "HIS",
+        "I": "ILE",
+        "L": "LEU",
+        "K": "LYS",
+        "M": "MET",
+        "F": "PHE",
+        "P": "PRO",
+        "S": "SER",
+        "T": "THR",
+        "W": "TRP",
+        "Y": "TYR",
+        "V": "VAL",
+        "X": "UNK",
+    }
+    restype_INTtoSTR = {
+        0: "A",
+        1: "C",
+        2: "D",
+        3: "E",
+        4: "F",
+        5: "G",
+        6: "H",
+        7: "I",
+        8: "K",
+        9: "L",
+        10: "M",
+        11: "N",
+        12: "P",
+        13: "Q",
+        14: "R",
+        15: "S",
+        16: "T",
+        17: "V",
+        18: "W",
+        19: "Y",
+        20: "X",
+    }
+    restype_name_to_atom14_names = {
+        "ALA": ["N", "CA", "C", "O", "CB", "", "", "", "", "", "", "", "", ""],
+        "ARG": [
+            "N",
+            "CA",
+            "C",
+            "O",
+            "CB",
+            "CG",
+            "CD",
+            "NE",
+            "CZ",
+            "NH1",
+            "NH2",
+            "",
+            "",
+            "",
+        ],
+        "ASN": ["N", "CA", "C", "O", "CB", "CG", "OD1", "ND2", "", "", "", "", "", ""],
+        "ASP": ["N", "CA", "C", "O", "CB", "CG", "OD1", "OD2", "", "", "", "", "", ""],
+        "CYS": ["N", "CA", "C", "O", "CB", "SG", "", "", "", "", "", "", "", ""],
+        "GLN": [
+            "N",
+            "CA",
+            "C",
+            "O",
+            "CB",
+            "CG",
+            "CD",
+            "OE1",
+            "NE2",
+            "",
+            "",
+            "",
+            "",
+            "",
+        ],
+        "GLU": [
+            "N",
+            "CA",
+            "C",
+            "O",
+            "CB",
+            "CG",
+            "CD",
+            "OE1",
+            "OE2",
+            "",
+            "",
+            "",
+            "",
+            "",
+        ],
+        "GLY": ["N", "CA", "C", "O", "", "", "", "", "", "", "", "", "", ""],
+        "HIS": [
+            "N",
+            "CA",
+            "C",
+            "O",
+            "CB",
+            "CG",
+            "ND1",
+            "CD2",
+            "CE1",
+            "NE2",
+            "",
+            "",
+            "",
+            "",
+        ],
+        "ILE": ["N", "CA", "C", "O", "CB", "CG1", "CG2", "CD1", "", "", "", "", "", ""],
+        "LEU": ["N", "CA", "C", "O", "CB", "CG", "CD1", "CD2", "", "", "", "", "", ""],
+        "LYS": ["N", "CA", "C", "O", "CB", "CG", "CD", "CE", "NZ", "", "", "", "", ""],
+        "MET": ["N", "CA", "C", "O", "CB", "CG", "SD", "CE", "", "", "", "", "", ""],
+        "PHE": [
+            "N",
+            "CA",
+            "C",
+            "O",
+            "CB",
+            "CG",
+            "CD1",
+            "CD2",
+            "CE1",
+            "CE2",
+            "CZ",
+            "",
+            "",
+            "",
+        ],
+        "PRO": ["N", "CA", "C", "O", "CB", "CG", "CD", "", "", "", "", "", "", ""],
+        "SER": ["N", "CA", "C", "O", "CB", "OG", "", "", "", "", "", "", "", ""],
+        "THR": ["N", "CA", "C", "O", "CB", "OG1", "CG2", "", "", "", "", "", "", ""],
+        "TRP": [
+            "N",
+            "CA",
+            "C",
+            "O",
+            "CB",
+            "CG",
+            "CD1",
+            "CD2",
+            "CE2",
+            "CE3",
+            "NE1",
+            "CZ2",
+            "CZ3",
+            "CH2",
+        ],
+        "TYR": [
+            "N",
+            "CA",
+            "C",
+            "O",
+            "CB",
+            "CG",
+            "CD1",
+            "CD2",
+            "CE1",
+            "CE2",
+            "CZ",
+            "OH",
+            "",
+            "",
+        ],
+        "VAL": ["N", "CA", "C", "O", "CB", "CG1", "CG2", "", "", "", "", "", "", ""],
+        "UNK": ["", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+    }
+
+    S_str = [restype_1to3[AA] for AA in [restype_INTtoSTR[AA] for AA in S]]
+
+    X_list = []
+    b_factor_list = []
+    atom_name_list = []
+    element_name_list = []
+    residue_name_list = []
+    residue_number_list = []
+    chain_id_list = []
+    icodes_list = []
+    for i, AA in enumerate(S_str):
+        sel = X_m[i].astype(np.int32) == 1
+        total = np.sum(sel)
+        tmp = np.array(restype_name_to_atom14_names[AA])[sel]
+        X_list.append(X[i][sel])
+        b_factor_list.append(b_factors[i][sel])
+        atom_name_list.append(tmp)
+        element_name_list += [AA[:1] for AA in list(tmp)]
+        residue_name_list += total * [AA]
+        residue_number_list += total * [R_idx[i]]
+        chain_id_list += total * [chain_letters[i]]
+        icodes_list += total * [icodes[i]]
+
+    X_stack = np.concatenate(X_list, 0)
+    b_factor_stack = np.concatenate(b_factor_list, 0)
+    atom_name_stack = np.concatenate(atom_name_list, 0)
+
+    protein = prody.AtomGroup()
+    protein.setCoords(X_stack)
+    protein.setBetas(b_factor_stack)
+    protein.setNames(atom_name_stack)
+    protein.setResnames(residue_name_list)
+    protein.setElements(element_name_list)
+    protein.setOccupancies(np.ones([X_stack.shape[0]]))
+    protein.setResnums(residue_number_list)
+    protein.setChids(chain_id_list)
+    protein.setIcodes(icodes_list)
+
+    if other_atoms:
+        other_atoms_g = prody.AtomGroup()
+        other_atoms_g.setCoords(other_atoms.getCoords())
+        other_atoms_g.setNames(other_atoms.getNames())
+        other_atoms_g.setResnames(other_atoms.getResnames())
+        other_atoms_g.setElements(other_atoms.getElements())
+        other_atoms_g.setOccupancies(other_atoms.getOccupancies())
+        other_atoms_g.setResnums(other_atoms.getResnums())
+        other_atoms_g.setChids(other_atoms.getChids())
+        if force_hetatm:
+            other_atoms_g.setFlags("hetatm", other_atoms.getFlags("hetatm"))
+        writePDB(save_path, protein + other_atoms_g)
+    else:
+        writePDB(save_path, protein)
 
 def get_aligned_coordinates(protein_atoms, CA_dict: dict, atom_name: str):
     """
@@ -257,13 +1010,23 @@ def get_aligned_coordinates(protein_atoms, CA_dict: dict, atom_name: str):
                 atom_coords_m[CA_dict[code]] = 1
     return atom_coords_, atom_coords_m
 
+ligand_exclude_resnames = {
+    "ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "ILE",
+    "LEU", "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL",
+    "UNK", "MSE", "PTR", "CYX", "HID", "HIE", "HIP",
+    "EOH", "EDO", "GOL", "PEG", "PG4", "PG5", "1PE", "PG6",
+    "FMT", "ACT", "CL", "SO4", "PO4", "WAT", "HOH",
+}
+
+
 def parse_PDB(
     input_path: str,
     device: str = "cpu",
     chains: list = None,
     parse_all_atoms: bool = False,
     parse_atoms_with_zero_occupancy: bool = False,
-    trim_his_tag: bool = False
+    trim_his_tag: bool = False,
+    return_prody: bool = False
 ):
     """
     input_path : path for the input PDB
@@ -277,7 +1040,12 @@ def parse_PDB(
         atom_types = atom_types_4
     else:
         atom_types = atom_types_all
-    atoms = parsePDB(input_path)
+    if input_path.lower().endswith((".cif", ".mmcif", ".cif.gz", ".mmcif.gz")):
+        atoms = parseMMCIF(input_path)
+    else:
+        atoms = parsePDB(input_path)
+    if atoms is None:
+        return None
     if not parse_atoms_with_zero_occupancy:
         atoms = atoms.select("occupancy > 0")
     if chains and len(chains) > 0:
@@ -400,29 +1168,32 @@ def parse_PDB(
         xyz_37 = np.concatenate(xyz_37_list, 0)
         xyz_37_m = np.concatenate(xyz_37_m_list, 0)
 
+    # ligand context atoms, read from the occupancy-filtered, chain-selected AtomGroup so
+    # this is format-agnostic (PDB and mmCIF); see ligand_exclude_resnames for skipped groups
     Y = list()
     Y_t = list()
-    for line in open(input_path, "r"):
-        if ((line.startswith("ATOM  ") or line.startswith("HETATM")) and \
-                not line[17:20] in ["ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "ILE", \
-                                    "LEU", "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL", \
-                                    "UNK", "MSE", "PTR", "CYX", "HID", "HIE", "HIP", \
-                                    "EOH", "EDO", "GOL", "PEG", "PG4", "PG5", "1PE", "PG6", \
-                                    "FMT", "ACT", " CL", "SO4", "PO4", "WAT", "HOH"] \
-                or line.startswith("HETATM") and line[17:20] == "UNK") \
-                and len(line) >= 78:
-            if chains and line[20:22].strip() not in chains:
-                continue
-            atom_type = line.rstrip()[-4:].strip().upper()
-            if atom_type.endswith("+") or atom_type.endswith("-"):
-                atom_type = atom_type[:-2]
-            atom_type = element_dict[atom_type]
-            if atom_type == 1:
-                continue
-            Y.append([float(line[30:38]), float(line[38:46]), float(line[46:54])])
-            Y_t.append(atom_type)
+    lig_resnames = atoms.getResnames()
+    lig_coords = atoms.getCoords()
+    lig_elements = atoms.getElements()
+    lig_hetflags = atoms.getFlags("hetatm")
+    for i in range(len(lig_resnames)):
+        resname = lig_resnames[i].strip().upper()
+        is_het = bool(lig_hetflags[i]) if lig_hetflags is not None else False
+        if resname in ligand_exclude_resnames and not (is_het and resname == "UNK"):
+            continue
+        element = lig_elements[i].strip().upper()
+        if element[-1:] in "+-":
+            element = element[:-1]
+        element = element.rstrip("0123456789")
+        if element not in element_dict:
+            continue
+        atom_type = element_dict[element]
+        if atom_type == 1:
+            continue
+        Y.append(lig_coords[i])
+        Y_t.append(atom_type)
     assert len(Y) == len(Y_t)
-    Y = np.array(Y, dtype=np.float32)
+    Y = np.array(Y, dtype=np.float32).reshape(-1, 3)
     Y_t = np.array(Y_t, dtype=np.int32)
     Y_m = (Y_t != 1) * (Y_t != 0)
 
@@ -457,4 +1228,25 @@ def parse_PDB(
     output_dict["Y_t"] = torch.tensor(Y_t, device=device, dtype=torch.int32)
     output_dict["Y_m"] = torch.tensor(Y_m, device=device, dtype=torch.int32)
 
-    return output_dict
+    if not return_prody:
+        return output_dict
+
+    # inference path: also return the ProDy AtomGroups + per-residue chain/icode
+    # metadata that the training .pt schema drops (inference.py needs these to write
+    # output PDBs and to split the designed sequence back into chains).
+    assert not trim_his_tag, "return_prody is incompatible with trim_his_tag"
+    output_dict["chain_letters"] = CA_chain_ids
+    chain_list = sorted(set(CA_chain_ids))
+    mask_c = [
+        torch.tensor([chain == item for item in CA_chain_ids], device=device, dtype=bool)
+        for chain in chain_list
+    ]
+    output_dict["mask_c"] = mask_c
+    output_dict["chain_list"] = chain_list
+
+    backbone = protein_atoms.select("backbone")
+    other_atoms = atoms.select("not protein and not water")
+    water_atoms = atoms.select("water")
+    icodes = list(CA_icodes)
+
+    return output_dict, backbone, other_atoms, icodes, water_atoms
