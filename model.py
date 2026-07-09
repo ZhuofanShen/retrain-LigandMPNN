@@ -1,9 +1,10 @@
 import numpy as np
 import torch
+import torch.utils.checkpoint
 import torch.nn as nn
 import torch.nn.functional as F
 
-from model_data_utils import side_chain_atom_types, periodic_table_features
+from data_utils import side_chain_atom_types, periodic_table_features
 
 
 # gather functions
@@ -184,7 +185,7 @@ class ProteinMPNN(nn.Module):
         mask_attend = mask.unsqueeze(-1) * mask_attend #[B,L,M,M,C]
         for encoder_layer in self.encoder_layers:
             h_V, h_E = torch.utils.checkpoint.checkpoint(
-                encoder_layer, h_V, h_E, E_idx, mask, mask_attend, use_reentrant=True
+                encoder_layer, h_V, h_E, E_idx, mask, mask_attend, use_reentrant=False
             ) # ([B,L,C], [B,L,K,C]) --> ([B,L,C], [B,L,K,C])
         return h_V, h_E
 
@@ -199,13 +200,13 @@ class ProteinMPNN(nn.Module):
 
             # ligand graph: neighborhood ligand nodes & edges --> update central ligand nodes
             h_Y_nodes = torch.utils.checkpoint.checkpoint(
-                y_context_encoder_layer, h_Y_nodes, h_Y_edges, Y_m, Y_m_edges, use_reentrant=True
+                y_context_encoder_layer, h_Y_nodes, h_Y_edges, Y_m, Y_m_edges, use_reentrant=False
             ) # ([B,L,M,C], [B,L,M,M,C]) --> [B,L,M,C]
 
             # protein-ligand graph: neighborhood ligand nodes --> update central residue nodes
             h_E_context_Y_nodes = torch.cat([h_E_context, h_Y_nodes], -1) # [B,L,M,2C]
             h_V_C = torch.utils.checkpoint.checkpoint(
-                context_encoder_layer, h_V_C, h_E_context_Y_nodes, mask, Y_m, use_reentrant=True
+                context_encoder_layer, h_V_C, h_E_context_Y_nodes, mask, Y_m, use_reentrant=False
             ) # ([B,L,C], [B,L,M,2C]) --> [B,L,C]
 
         h_V_C = self.V_C(h_V_C) # [B,L,C]
@@ -221,13 +222,13 @@ class ProteinMPNN(nn.Module):
         h_V_C = self.W_c(h_V) #[B,L,C]
         # ligand graph: neighborhood ligand nodes & edges --> update central ligand nodes
         h_Y_nodes = torch.utils.checkpoint.checkpoint(
-            self.y_context_encoder_layer_1, h_Y_nodes, h_Y_edges, Y_m, Y_m_edges, use_reentrant=True
+            self.y_context_encoder_layer_1, h_Y_nodes, h_Y_edges, Y_m, Y_m_edges, use_reentrant=False
         ) # ([B,L,M,C], [B,L,M,M,C]) --> [B,L,M,C]
 
         # protein-ligand graph: neighborhood ligand nodes --> update central residue nodes
         h_E_context_Y_nodes = torch.cat([h_E_context, h_Y_nodes], -1) # [B,L,M,2C]
         h_V_C = torch.utils.checkpoint.checkpoint(
-            self.context_encoder_layer_1, h_V_C, h_E_context_Y_nodes, mask, Y_m, use_reentrant=True
+            self.context_encoder_layer_1, h_V_C, h_E_context_Y_nodes, mask, Y_m, use_reentrant=False
         ) # ([B,L,C], [B,L,M,2C]) --> [B,L,C]
 
         h_V_C = self.V_C(h_V_C) # [B,L,C]
@@ -235,18 +236,18 @@ class ProteinMPNN(nn.Module):
 
         # protein-ligand graph: update ligand nodes and edges
         h_Y_nodes, h_E_context = torch.utils.checkpoint.checkpoint(
-            self.protein2ligandlayer, nn_idx, Y_scale, h_Y_nodes, h_E_context, h_V, mask, Y_m, use_reentrant=True
+            self.protein2ligandlayer, nn_idx, Y_scale, h_Y_nodes, h_E_context, h_V, mask, Y_m, use_reentrant=False
         )
 
         # ligand graph: neighborhood ligand nodes & edges --> update central ligand nodes
         h_Y_nodes = torch.utils.checkpoint.checkpoint(
-            self.y_context_encoder_layer_2, h_Y_nodes, h_Y_edges, Y_m, Y_m_edges, use_reentrant=True
+            self.y_context_encoder_layer_2, h_Y_nodes, h_Y_edges, Y_m, Y_m_edges, use_reentrant=False
         ) # ([B,L,M,C], [B,L,M,M,C]) --> [B,L,M,C]
 
         # protein-ligand graph: neighborhood ligand nodes --> update central residue nodes
         h_E_context_Y_nodes = torch.cat([h_E_context, h_Y_nodes], -1) # [B,L,M,2C]
         h_V_C = torch.utils.checkpoint.checkpoint(
-            self.context_encoder_layer_2, h_V_C, h_E_context_Y_nodes, mask, Y_m, use_reentrant=True
+            self.context_encoder_layer_2, h_V_C, h_E_context_Y_nodes, mask, Y_m, use_reentrant=False
         ) # ([B,L,C], [B,L,M,2C]) --> [B,L,C]
 
         h_V_C = self.V_C_2(h_V_C) # [B,L,C]
